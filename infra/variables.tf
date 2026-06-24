@@ -25,6 +25,12 @@ variable "location" {
   default     = "westeurope"
 }
 
+variable "cosmos_location" {
+  description = "Region for the Cosmos DB account. Empty uses var.location; override if that region is capacity-constrained for Cosmos."
+  type        = string
+  default     = ""
+}
+
 variable "resource_group_name" {
   description = "Name of the resource group to create."
   type        = string

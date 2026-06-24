@@ -6,6 +6,10 @@ locals {
   # Default to the standard azurewebsites.net hostname; override via app_base_url
   # for regional hostnames or custom domains.
   app_url = var.app_base_url != "" ? var.app_base_url : "https://${local.app_name}.azurewebsites.net"
+
+  # Cosmos DB region. Defaults to the deployment location, but can be overridden
+  # (e.g. when a region is temporarily capacity-constrained for Cosmos).
+  cosmos_location = var.cosmos_location != "" ? var.cosmos_location : var.location
 }
 
 # Random suffix used only when app_name is left empty. 6 lowercase-alphanumeric
@@ -53,7 +57,7 @@ resource "azurerm_application_insights" "this" {
 resource "azurerm_cosmosdb_account" "this" {
   name                = "${local.app_name}-cosmos"
   resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
+  location            = local.cosmos_location
   offer_type          = "Standard"
   kind                = "GlobalDocumentDB"
 
@@ -69,7 +73,7 @@ resource "azurerm_cosmosdb_account" "this" {
   }
 
   geo_location {
-    location          = azurerm_resource_group.this.location
+    location          = local.cosmos_location
     failover_priority = 0
   }
 }
@@ -126,9 +130,12 @@ resource "azurerm_linux_web_app" "this" {
   }
 
   site_config {
-    always_on        = true
-    app_command_line = "gunicorn --bind=0.0.0.0 --workers=2 app:app"
+    always_on = true
 
+    # No custom app_command_line: Oryx compresses the build (output.tar.zst) and
+    # its generated startup script extracts it to /tmp and runs `gunicorn app:app`
+    # from there. A custom command would run in /home/site/wwwroot (where app.py
+    # isn't present after extraction) and fail with "No module named 'app'".
     application_stack {
       python_version = var.python_version
     }
