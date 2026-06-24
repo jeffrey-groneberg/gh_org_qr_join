@@ -1,0 +1,18 @@
+# Copy to terraform.tfvars and fill in. Do NOT commit terraform.tfvars.
+app_name  = "my-qr-org-join"     # must be globally unique
+location  = "westeurope"
+tenant_id = "00000000-0000-0000-0000-000000000000"
+
+# GitHub OAuth App (participant identity) + classic PAT (admin:org) for invites.
+github_client_id     = "Iv1xxxxxxxxxxxxxxxxx"
+github_client_secret = "replace-me"
+github_invite_token  = "ghp_replace_me"
+
+# Optionally assign the admin app role to specific users at deploy time.
+# admin_principal_object_ids = ["<user-object-id>"]
+
+# Optional overrides:
+# admin_app_role_value = "admin"
+# member_role          = "member"
+# sku_name             = "B1"
+# app_base_url         = "https://my-qr-org-join.azurewebsites.net"

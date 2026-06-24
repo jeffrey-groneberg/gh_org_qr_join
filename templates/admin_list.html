@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Manage organizations{% endblock %}
+{% block card_class %}wide{% endblock %}
+{% block body %}
+  <h1>Joinable organizations</h1>
+  <p class="lead">
+    Signed in as <strong>{{ admin_name or "admin" }}</strong>.
+    Member management lives on GitHub — this only controls which orgs show a QR code.
+    <a href="{{ url_for('auth.logout') }}">Sign out</a>
+  </p>
+
+  {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+  {% if notice %}<div class="notice" role="status">{{ notice }}</div>{% endif %}
+
+  {% if orgs %}
+    <table>
+      <thead>
+        <tr><th>Organization</th><th>Slug</th><th>Join role</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for org in orgs %}
+          <tr>
+            <td>{{ org.display_name }}</td>
+            <td><code>{{ org.slug }}</code></td>
+            <td>{{ org.member_role }}</td>
+            <td>
+              <div class="actions">
+                <a class="btn btn-secondary btn-sm" href="{{ url_for('admin.org_qr', org_id=org.id) }}" target="_blank" rel="noopener">QR</a>
+                <form method="post" action="{{ url_for('admin.delete_org', org_id=org.id) }}"
+                      onsubmit="return confirm('Remove {{ org.display_name }} from the list?');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                  <button class="btn btn-danger btn-sm" type="submit">Remove</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="lead">No organizations yet. Add one below to generate its QR code.</p>
+  {% endif %}
+
+  <h1>Add an organization</h1>
+  <form method="post" action="{{ url_for('admin.create_org') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <div class="row">
+      <div>
+        <label for="slug">GitHub org login (slug)</label>
+        <input type="text" id="slug" name="slug" placeholder="my-hackathon-org" required />
+      </div>
+      <div>
+        <label for="display_name">Display name (optional)</label>
+        <input type="text" id="display_name" name="display_name" placeholder="My Hackathon Org" />
+      </div>
+      <div>
+        <label for="member_role">Join role</label>
+        <select id="member_role" name="member_role">
+          <option value="member" {% if default_role == 'member' %}selected{% endif %}>member</option>
+          <option value="admin" {% if default_role == 'admin' %}selected{% endif %}>admin</option>
+        </select>
+      </div>
+    </div>
+    <label>&nbsp;</label>
+    <button class="btn" type="submit">Add organization</button>
+  </form>
+{% endblock %}

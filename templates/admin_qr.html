@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Join {{ org.name }}{% endblock %}
+{% block body %}
+  <h1>Join <span class="org">{{ org.name }}</span></h1>
+  <p class="lead">Scan to join the organization on GitHub.</p>
+  <div class="qr">{{ qr_svg | safe }}</div>
+  <p class="hint">{{ target }}</p>
+  <div class="footer-link">
+    <a href="{{ url_for('admin.list_orgs') }}">&larr; Back to organizations</a>
+  </div>
+{% endblock %}

@@ -1,0 +1,238 @@
+"""Participant flow: GitHub identity + self-join for a specific org.
+
+A participant reaches ``/orgs/<slug>`` by scanning that org's QR code. They:
+  1. Sign in with GitHub (OAuth App, empty scope) so we learn their login.
+  2. Click "Join {org}", which creates an org invitation using the shared
+     classic PAT (admin:org).
+  3. Accept the invitation on GitHub to finish joining.
+
+Only orgs that exist in the database can be joined, so the broadly-scoped PAT
+can never be used to invite into an arbitrary org.
+"""
+
+from __future__ import annotations
+
+import secrets
+from urllib.parse import urlencode
+
+import requests
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
+
+import segno
+
+from models import Org
+
+participants_bp = Blueprint("participants", __name__)
+
+GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
+GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+GITHUB_API_URL = "https://api.github.com"
+GITHUB_API_VERSION = "2022-11-28"
+HTTP_TIMEOUT = (5, 10)
+
+# Shared connection-pooled HTTP session for all GitHub calls.
+_http = requests.Session()
+
+
+def _config():
+    return current_app.config["APP_CONFIG"]
+
+
+def _get_org_or_404(slug: str) -> Org:
+    org = Org.query.filter_by(slug=slug).first()
+    if org is None:
+        abort(404)
+    return org
+
+
+def _ensure_csrf_token() -> str:
+    token = session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["csrf_token"] = token
+    return token
+
+
+def _qr_svg(target: str) -> str:
+    return segno.make(target, error="m").svg_inline(scale=6)
+
+
+@participants_bp.get("/orgs/<slug>")
+def org_page(slug: str):
+    """Participant landing page for a single org (the QR target)."""
+    config = _config()
+    org = _get_org_or_404(slug)
+    # Identity is org-independent; only show join state for the org in context.
+    invited = session.get("invited") and session.get("invited_slug") == slug
+    return render_template(
+        "join.html",
+        org=org,
+        qr_svg=_qr_svg(config.org_join_url(slug)),
+        user=session.get("user_login"),
+        invited=invited,
+        invite_state=session.get("invite_state"),
+        accept_url=f"https://github.com/orgs/{slug}/invitation",
+        error=session.pop("flash_error", None),
+        csrf_token=_ensure_csrf_token(),
+    )
+
+
+@participants_bp.get("/orgs/<slug>/login")
+def login(slug: str):
+    """Start the GitHub OAuth web flow (identity only) for this org."""
+    config = _config()
+    _get_org_or_404(slug)
+    state = secrets.token_urlsafe(32)
+    session["oauth_state"] = state
+    session["join_slug"] = slug
+    params = {
+        "client_id": config.github_client_id,
+        "redirect_uri": config.github_redirect_uri,
+        "state": state,
+        "scope": "",  # identity only — we never need any scope
+        "allow_signup": "true",
+    }
+    return redirect(f"{GITHUB_AUTHORIZE_URL}?{urlencode(params)}")
+
+
+@participants_bp.get("/callback")
+def callback():
+    """Handle the GitHub OAuth redirect: validate state, exchange code, get login."""
+    config = _config()
+    slug = session.get("join_slug")
+    back = url_for("participants.org_page", slug=slug) if slug else url_for("admin.list_orgs")
+
+    if request.args.get("error"):
+        session["flash_error"] = "GitHub sign-in was cancelled. Please try again to join."
+        return redirect(back)
+
+    expected_state = session.pop("oauth_state", None)
+    returned_state = request.args.get("state")
+    if not expected_state or not returned_state or not secrets.compare_digest(
+        expected_state, returned_state
+    ):
+        session["flash_error"] = "Sign-in could not be verified. Please try again."
+        return redirect(back)
+
+    code = request.args.get("code")
+    if not code:
+        session["flash_error"] = "Sign-in failed (no code returned). Please retry."
+        return redirect(back)
+
+    try:
+        token_resp = _http.post(
+            GITHUB_TOKEN_URL,
+            headers={"Accept": "application/json"},
+            data={
+                "client_id": config.github_client_id,
+                "client_secret": config.github_client_secret,
+                "code": code,
+                "redirect_uri": config.github_redirect_uri,
+            },
+            timeout=HTTP_TIMEOUT,
+        )
+        token_resp.raise_for_status()
+        user_token = token_resp.json().get("access_token")
+    except requests.RequestException:
+        session["flash_error"] = "Could not reach GitHub to sign you in. Please retry."
+        return redirect(back)
+
+    if not user_token:
+        session["flash_error"] = "GitHub did not grant access. Please try again."
+        return redirect(back)
+
+    try:
+        user_resp = _http.get(
+            f"{GITHUB_API_URL}/user",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {user_token}",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            },
+            timeout=HTTP_TIMEOUT,
+        )
+        user_resp.raise_for_status()
+        user_data = user_resp.json()
+    except requests.RequestException:
+        session["flash_error"] = "Could not read your GitHub identity. Please retry."
+        return redirect(back)
+
+    login_name = user_data.get("login")
+    if not login_name:
+        session["flash_error"] = "GitHub identity was incomplete. Please retry."
+        return redirect(back)
+
+    session["user_login"] = login_name
+    session.pop("invited", None)
+    session.pop("invite_state", None)
+    session.pop("invited_slug", None)
+    return redirect(back)
+
+
+@participants_bp.post("/orgs/<slug>/join")
+def join(slug: str):
+    """Create the org invitation for the signed-in user via the shared PAT."""
+    config = _config()
+    org = _get_org_or_404(slug)
+    login_name = session.get("user_login")
+    if not login_name:
+        return redirect(url_for("participants.org_page", slug=slug))
+
+    submitted = request.form.get("csrf_token", "")
+    expected = session.get("csrf_token", "")
+    if not expected or not secrets.compare_digest(submitted, expected):
+        abort(400)
+
+    try:
+        resp = _http.put(
+            f"{GITHUB_API_URL}/orgs/{slug}/memberships/{login_name}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {config.invite_token}",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            },
+            json={"role": org.member_role},
+            timeout=HTTP_TIMEOUT,
+        )
+    except requests.RequestException:
+        session["flash_error"] = "Could not reach GitHub to send your invite. Please retry."
+        return redirect(url_for("participants.org_page", slug=slug))
+
+    if resp.status_code == 200:
+        session["invited"] = True
+        session["invited_slug"] = slug
+        session["invite_state"] = resp.json().get("state", "pending")
+    elif resp.status_code == 403:
+        session["flash_error"] = (
+            "The invite service is not authorized for this organization. "
+            "Please notify the organizer."
+        )
+    elif resp.status_code == 422:
+        session["flash_error"] = (
+            "GitHub could not process the invite right now (it may be rate "
+            "limited). Please try again in a little while."
+        )
+    else:
+        session["flash_error"] = "Sending your invite failed. Please try again."
+
+    return redirect(url_for("participants.org_page", slug=slug))
+
+
+@participants_bp.get("/logout")
+def logout():
+    """Sign the participant out (clears GitHub identity + join state)."""
+    for key in ("user_login", "invited", "invited_slug", "invite_state"):
+        session.pop(key, None)
+    slug = request.args.get("slug")
+    if slug:
+        return redirect(url_for("participants.org_page", slug=slug))
+    return redirect(url_for("admin.list_orgs"))

@@ -1,0 +1,85 @@
+variable "app_name" {
+  description = "Globally-unique name for the App Service (becomes <app_name>.azurewebsites.net)."
+  type        = string
+}
+
+variable "location" {
+  description = "Azure region for all resources."
+  type        = string
+  default     = "westeurope"
+}
+
+variable "resource_group_name" {
+  description = "Name of the resource group to create."
+  type        = string
+  default     = "rg-qr-org-join"
+}
+
+variable "sku_name" {
+  description = "App Service Plan SKU. B1 is the smallest tier that supports Always On."
+  type        = string
+  default     = "B1"
+}
+
+variable "python_version" {
+  description = "Python runtime version for the Linux web app."
+  type        = string
+  default     = "3.12"
+}
+
+variable "app_base_url" {
+  description = <<-EOT
+    Public HTTPS base URL of the app (no trailing slash). Leave empty to derive
+    https://<app_name>.azurewebsites.net. Override if your app uses a regional
+    hostname or a custom domain — it must match the AAD redirect URI.
+  EOT
+  type        = string
+  default     = ""
+}
+
+# --- Admin authorization (Entra app role via Easy Auth) --------------------
+variable "tenant_id" {
+  description = "Entra (Azure AD) tenant ID used for Easy Auth."
+  type        = string
+}
+
+variable "admin_app_role_value" {
+  description = "Value of the Entra app role that grants admin access (matches ENTRA_ADMIN_ROLE)."
+  type        = string
+  default     = "admin"
+}
+
+variable "admin_principal_object_ids" {
+  description = "Object IDs of users to assign the admin app role to (optional; assign in the portal otherwise)."
+  type        = list(string)
+  default     = []
+}
+
+# --- GitHub credentials (provided to the app as secret app settings) -------
+variable "github_client_id" {
+  description = "GitHub OAuth App client ID (participant identity)."
+  type        = string
+}
+
+variable "github_client_secret" {
+  description = "GitHub OAuth App client secret."
+  type        = string
+  sensitive   = true
+}
+
+variable "github_invite_token" {
+  description = "GitHub classic PAT with admin:org scope, used to create invitations for all orgs."
+  type        = string
+  sensitive   = true
+}
+
+variable "member_role" {
+  description = "Default role granted to joining members for a new org."
+  type        = string
+  default     = "member"
+
+  validation {
+    condition     = contains(["member", "admin"], var.member_role)
+    error_message = "member_role must be 'member' or 'admin'."
+  }
+}
