@@ -208,6 +208,18 @@ def join(slug: str):
     if not expected or not secrets.compare_digest(submitted, expected):
         abort(400)
 
+    # Passcode gate: only participants who know the org's passcode may be invited.
+    if not org.passcode:
+        logger.warning("Join attempted but org has no passcode set (org=%s)", slug)
+        session["flash_error"] = (
+            "Joining isn't enabled for this organization yet. Please ask the organizers."
+        )
+        return redirect(url_for("participants.org_page", slug=slug))
+    if not org.passcode_matches(request.form.get("passcode", "")):
+        logger.info("Join rejected: wrong passcode (org=%s)", slug)
+        session["flash_error"] = "That passcode is not correct. Please check and try again."
+        return redirect(url_for("participants.org_page", slug=slug))
+
     try:
         resp = _http.put(
             f"{GITHUB_API_URL}/orgs/{slug}/memberships/{login_name}",

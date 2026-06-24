@@ -41,6 +41,8 @@ class OrgStore(Protocol):
 
     def update(self, slug: str, display_name: str, member_role: str) -> Org | None: ...
 
+    def set_passcode(self, slug: str, passcode: str) -> Org | None: ...
+
     def delete(self, slug: str) -> bool: ...
 
 
@@ -105,6 +107,15 @@ class CosmosOrgStore:
             return None
         item["display_name"] = display_name
         item["member_role"] = member_role
+        self._container.replace_item(item=slug, body=item)
+        return Org.from_item(item)
+
+    def set_passcode(self, slug: str, passcode: str) -> Org | None:
+        try:
+            item = self._container.read_item(item=slug, partition_key=slug)
+        except CosmosResourceNotFoundError:
+            return None
+        item["passcode"] = passcode
         self._container.replace_item(item=slug, body=item)
         return Org.from_item(item)
 

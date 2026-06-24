@@ -5,6 +5,10 @@
   <p class="lead">Scan to join the organization on GitHub.</p>
   <div class="qr">{{ qr_svg | safe }}</div>
   <p class="hint">{{ target }}</p>
+  {% if org.passcode %}
+    <p class="lead">Enter this passcode to join:</p>
+    <div class="passcode">{{ org.passcode }}</div>
+  {% endif %}
   <div class="footer-link">
     <a href="{{ url_for('admin.list_orgs') }}">&larr; Back to organizations</a>
   </div>

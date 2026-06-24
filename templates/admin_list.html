@@ -28,7 +28,7 @@
   {% if orgs %}
     <table>
       <thead>
-        <tr><th>Organization</th><th>Slug</th><th>Join role</th><th>Actions</th></tr>
+        <tr><th>Organization</th><th>Slug</th><th>Join role</th><th>Passcode</th><th>Actions</th></tr>
       </thead>
       <tbody>
         {% for org in orgs %}
@@ -44,12 +44,24 @@
             </td>
             <td>{{ org.member_role }}</td>
             <td>
+              {% if org.passcode %}
+                <code>{{ org.passcode }}</code>
+              {% else %}
+                <span class="badge missing">not set</span>
+              {% endif %}
+            </td>
+            <td>
               <div class="actions">
                 <form method="post" action="{{ url_for('admin.check_org', slug=org.slug) }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                   <button class="btn btn-secondary btn-sm" type="submit">Check</button>
                 </form>
                 <a class="btn btn-secondary btn-sm" href="{{ url_for('admin.org_qr', slug=org.slug) }}" target="_blank" rel="noopener">QR</a>
+                <form method="post" action="{{ url_for('admin.regenerate_passcode', slug=org.slug) }}"
+                      onsubmit="return confirm('Generate a new passcode for {{ org.display_name }}? The old one stops working.');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                  <button class="btn btn-secondary btn-sm" type="submit">New code</button>
+                </form>
                 <form method="post" action="{{ url_for('admin.delete_org', slug=org.slug) }}"
                       onsubmit="return confirm('Remove {{ org.display_name }} from the list?');">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />

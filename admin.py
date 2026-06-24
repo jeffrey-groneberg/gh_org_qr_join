@@ -115,15 +115,35 @@ def create_org():
         logger.info("Rejected add of org '%s' (status=%s)", slug, result.status)
         return redirect(url_for("admin.list_orgs"))
 
-    org = Org(slug=slug, display_name=display_name or slug, member_role=role)
+    org = Org(
+        slug=slug,
+        display_name=display_name or slug,
+        member_role=role,
+        passcode=Org.generate_passcode(),
+    )
     try:
         _store().add(org)
     except OrgExistsError:
         session["admin_error"] = f"Organization '{slug}' is already in the list."
         return redirect(url_for("admin.list_orgs"))
 
-    session["admin_notice"] = f"Added '{org.name}'."
+    session["admin_notice"] = f"Added '{org.name}' (join passcode: {org.passcode})."
     logger.info("Org added (slug=%s, role=%s)", org.slug, org.member_role)
+    return redirect(url_for("admin.list_orgs"))
+
+
+@admin_bp.post("/admin/orgs/<slug>/passcode")
+@admin_required
+def regenerate_passcode(slug: str):
+    """Generate a fresh join passcode for an org (invalidates the old one)."""
+    _check_admin_csrf()
+    _get_org_or_404(slug)
+    passcode = Org.generate_passcode()
+    org = _store().set_passcode(slug, passcode)
+    if org is None:
+        abort(404)
+    session["admin_notice"] = f"New join passcode for '{org.name}': {passcode}"
+    logger.info("Org passcode regenerated (slug=%s)", slug)
     return redirect(url_for("admin.list_orgs"))
 
 

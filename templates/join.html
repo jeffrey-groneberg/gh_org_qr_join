@@ -48,6 +48,11 @@
     <p class="who">Signed in as <strong>{{ user }}</strong></p>
     <form method="post" action="{{ url_for('participants.join', slug=org.slug) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <label for="passcode">Join passcode</label>
+      <input class="passcode-input" type="text" id="passcode" name="passcode"
+             maxlength="12" autocomplete="off" autocapitalize="characters"
+             spellcheck="false" placeholder="XXXXXXXX" required />
+      <p class="hint">Ask the organizers for the {{ org.name }} passcode.</p>
       <button class="btn" type="submit">Join {{ org.name }}</button>
     </form>
     <div class="footer-link">
