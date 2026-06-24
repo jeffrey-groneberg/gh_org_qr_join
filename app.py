@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 
-from flask import Flask, redirect, url_for
+from flask import Flask, render_template
 
 from admin import admin_bp
 from auth import auth_bp
@@ -49,7 +49,10 @@ def create_app(config: Config, org_store: OrgStore) -> Flask:
 
     @app.get("/")
     def index():
-        return redirect(url_for("admin.list_orgs"))
+        # Public landing page — does not require admin sign-in. Admins follow the
+        # link to /admin (which triggers Easy Auth); participants reach their org
+        # via a QR code at /orgs/<slug>.
+        return render_template("index.html")
 
     @app.get("/healthz")
     def healthz():

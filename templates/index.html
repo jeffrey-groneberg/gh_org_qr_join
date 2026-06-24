@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}QR Org Join{% endblock %}
+{% block body %}
+  <h1>QR Org Join</h1>
+  <p class="lead">
+    Self-service joining for GitHub organizations. Scan an organization's QR
+    code to sign in with GitHub and request to join.
+  </p>
+  <a class="btn" href="{{ url_for('admin.list_orgs') }}">Manage organizations (admin)</a>
+  <p class="hint">Administrators sign in with Microsoft Entra ID.</p>
+{% endblock %}
