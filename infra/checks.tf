@@ -13,12 +13,12 @@ check "app_base_url_matches_hostname" {
   assert {
     condition = (
       var.app_base_url != "" ||
-      azurerm_linux_web_app.this.default_hostname == "${var.app_name}.azurewebsites.net"
+      azurerm_linux_web_app.this.default_hostname == "${local.app_name}.azurewebsites.net"
     )
     error_message = format(
       "App Service was assigned hostname '%s', which differs from the constructed APP_BASE_URL 'https://%s.azurewebsites.net'. Set the 'app_base_url' variable to 'https://%s' and re-apply so the QR codes, GitHub OAuth callback, and Entra redirect URI all match.",
       azurerm_linux_web_app.this.default_hostname,
-      var.app_name,
+      local.app_name,
       azurerm_linux_web_app.this.default_hostname,
     )
   }
