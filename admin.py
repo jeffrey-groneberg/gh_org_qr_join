@@ -85,6 +85,19 @@ def create_org():
         session["admin_error"] = "Enter a valid GitHub organization login (e.g. my-org)."
         return redirect(url_for("admin.list_orgs"))
 
+    # Reject duplicates before hitting the GitHub API.
+    if Org.query.filter_by(slug=slug).first() is not None:
+        session["admin_error"] = f"Organization '{slug}' is already in the list."
+        return redirect(url_for("admin.list_orgs"))
+
+    # Validate against GitHub: refuse to add an org that does not exist.
+    result = check_org_status(_config().invite_token, slug)
+    if result.status == "missing":
+        session["admin_error"] = (
+            f"'{slug}' was not found on GitHub. Double-check the organization login."
+        )
+        return redirect(url_for("admin.list_orgs"))
+
     org = Org(slug=slug, display_name=display_name or slug, member_role=role)
     db.session.add(org)
     try:
@@ -95,6 +108,15 @@ def create_org():
         return redirect(url_for("admin.list_orgs"))
 
     session["admin_notice"] = f"Added '{org.name}'."
+    # Surface a warning banner if the org exists but couldn't be fully verified.
+    if result.status != "ok":
+        session["check_result"] = {
+            "org_id": org.id,
+            "slug": org.slug,
+            "name": org.name,
+            "status": result.status,
+            "detail": result.detail,
+        }
     return redirect(url_for("admin.list_orgs"))
 
 
