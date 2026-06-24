@@ -46,6 +46,7 @@ def create_app() -> Flask:
     app.register_blueprint(admin_bp)
     app.register_blueprint(participants_bp)
 
+    config.ensure_sqlite_dir()
     with app.app_context():
         db.create_all()
 

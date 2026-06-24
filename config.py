@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import os
 
+from sqlalchemy.engine import make_url
+
 
 def _require_env(name: str) -> str:
     """Return a required environment variable or raise a clear startup error."""
@@ -87,3 +89,19 @@ class Config:
     def org_join_url(self, slug: str) -> str:
         """Public URL a participant lands on (encoded in the org's QR code)."""
         return f"{self.base_url}/orgs/{slug}"
+
+    def ensure_sqlite_dir(self) -> None:
+        """Create the parent directory for a file-backed SQLite database.
+
+        On Azure App Service the DB lives at /home/data/... which persists, but
+        the directory does not exist on a fresh app — SQLite creates the file,
+        not its parent — so the first write would fail without this.
+        """
+        url = make_url(self.database_url)
+        if url.get_backend_name() != "sqlite":
+            return
+        if not url.database or url.database == ":memory:":
+            return
+        directory = os.path.dirname(url.database)
+        if directory:
+            os.makedirs(directory, exist_ok=True)

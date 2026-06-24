@@ -44,28 +44,81 @@ python app.py                   # http://127.0.0.1:8000
 You'll need a GitHub OAuth App (callback `http://127.0.0.1:8000/callback`) and a
 classic PAT with `admin:org` for a test org you own.
 
-## Deploy to Azure (Terraform)
+## Deploy to Azure (step by step)
 
 Infrastructure lives in [`infra/`](infra/): a resource group, Linux App Service
 Plan (B1) + Web App (Python, gunicorn), all app settings, and the Entra app
 registration with an **admin** app role wired into App Service Easy Auth
 ("allow unauthenticated" so participants pass through).
 
+### Prerequisites
+- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) and
+  [Terraform](https://developer.hashicorp.com/terraform/install) installed.
+- An Azure subscription where you can create resources and an Entra app
+  registration, plus rights to assign the app role (Application/Cloud App
+  Administrator, or have an admin do the role assignment).
+- Sign in: `az login` (Terraform uses this), and note your tenant ID
+  (`az account show --query tenantId -o tsv`).
+- Pick a **globally-unique** `app_name` — it becomes
+  `https://<app_name>.azurewebsites.net`.
+
+### 1. Create the GitHub OAuth App (participant identity)
+At <https://github.com/settings/developers> → **New OAuth App**:
+- Homepage URL: `https://<app_name>.azurewebsites.net`
+- Authorization callback URL: `https://<app_name>.azurewebsites.net/callback`
+
+Copy the **Client ID** and generate a **Client secret**.
+
+### 2. Create the invite PAT (classic, `admin:org`)
+At <https://github.com/settings/tokens> → **Generate new token (classic)** with
+the **`admin:org`** scope. The token owner must be an owner/admin of every org
+participants will join. If an org enforces SAML SSO, authorize the token for it.
+
+### 3. Fill in Terraform variables
 ```bash
 cd infra
-cp terraform.tfvars.example terraform.tfvars   # fill in values
+cp terraform.tfvars.example terraform.tfvars
+```
+Edit `terraform.tfvars`: set `app_name`, `tenant_id`, `github_client_id`,
+`github_client_secret`, `github_invite_token`. Optionally set
+`admin_principal_object_ids` to auto-assign yourself the admin role
+(`az ad signed-in-user show --query id -o tsv`).
+
+### 4. Provision the infrastructure
+```bash
 terraform init
 terraform apply
 ```
+Terraform prints outputs including `app_url`, `github_oauth_callback_url`, and
+`admin_app_role_value`. If a non-default hostname was assigned, a check warns you
+to set `app_base_url` and re-apply (see below).
 
-After apply, use the outputs to:
-- set the GitHub OAuth App callback URL (`github_oauth_callback_url`),
-- assign users to the admin app role (`admin_app_role_value`), unless you passed
-  `admin_principal_object_ids`.
+### 5. Deploy the application code
+From the repo root (not `infra/`):
+```bash
+az webapp up \
+  --name <app_name> \
+  --resource-group rg-qr-org-join \
+  --runtime "PYTHON:3.12"
+```
+This zips and uploads the code; App Service builds it with Oryx
+(`pip install -r requirements.txt`) and runs `gunicorn app:app`. The SQLite
+database is created automatically under the persistent `/home/data/` directory.
 
-Then deploy the code (e.g. `az webapp up` or zip deploy); Oryx builds it from
-`requirements.txt` and runs `gunicorn app:app`. SQLite is stored on the
-persistent `/home` volume so data survives restarts.
+### 6. Grant admin access
+If you didn't pass `admin_principal_object_ids`, assign users to the **admin**
+app role: Entra admin center → **Enterprise applications** → `<app_name>-admin`
+→ **Users and groups** → add users with the `admin_app_role_value` role.
+
+### 7. Verify
+- `https://<app_name>.azurewebsites.net/healthz` → `{"status":"ok"}`.
+- `/admin` redirects you through Entra sign-in; after consent you see the org
+  list. Add an org, open its QR, scan it, and complete the GitHub join flow.
+
+> **Custom / regional hostname:** all URLs derive from `app_name`. If Azure
+> assigns a different hostname (custom domain or unique-default-hostname), set
+> `app_base_url = "https://<actual-host>"` in `terraform.tfvars`, re-apply, and
+> update the GitHub OAuth callback to match.
 
 > **Dockerfile note:** the Azure deploy uses App Service's built-in Python
 > runtime (Oryx), **not** the `Dockerfile`. The `Dockerfile` is kept only for
