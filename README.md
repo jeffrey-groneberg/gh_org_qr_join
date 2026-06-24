@@ -67,42 +67,48 @@ registration with an **admin** app role wired into App Service Easy Auth
   Administrator, or have an admin do the role assignment).
 - Sign in: `az login` (Terraform uses this), and note your tenant ID
   (`az account show --query tenantId -o tsv`).
-- Pick a **globally-unique** `app_name` — it becomes
-  `https://<app_name>.azurewebsites.net`.
 
-### 1. Create the GitHub OAuth App (participant identity)
-At <https://github.com/settings/developers> → **New OAuth App**:
-- Homepage URL: `https://<app_name>.azurewebsites.net`
-- Authorization callback URL: `https://<app_name>.azurewebsites.net/callback`
+You do **not** need to invent an `app_name` — Terraform auto-generates a
+globally-unique `qr-org-join-<random>` name. Because the GitHub OAuth App
+callback depends on that name (and GitHub OAuth Apps can't be created via API),
+deployment is two-phase. The `infra/deploy.sh` helper runs both phases for you.
 
-Copy the **Client ID** and generate a **Client secret**.
-
-### 2. Create the invite PAT (classic, `admin:org`)
+### 1. Create the invite PAT (classic, `admin:org`)
 At <https://github.com/settings/tokens> → **Generate new token (classic)** with
 the **`admin:org`** scope. The token owner must be an owner/admin of every org
 participants will join. If an org enforces SAML SSO, authorize the token for it.
 
-### 3. Fill in Terraform variables
+### 2. Seed Terraform variables
 ```bash
 cd infra
 cp terraform.tfvars.example terraform.tfvars
 ```
-Edit `terraform.tfvars`: set `app_name`, `tenant_id`, `github_client_id`,
-`github_client_secret`, `github_invite_token`. Optionally set
-`admin_principal_object_ids` to auto-assign yourself the admin role
-(`az ad signed-in-user show --query id -o tsv`).
+Set `tenant_id` (leave `app_name` empty to auto-generate). You can leave the
+`github_*` values as placeholders for now — `deploy.sh` pauses for them once it
+knows the URL. Optionally set `admin_principal_object_ids` to auto-assign
+yourself the admin role (`az ad signed-in-user show --query id -o tsv`).
 
-### 4. Provision the infrastructure
+### 3. Deploy (two-phase, scripted)
 ```bash
-terraform init
-terraform apply
+./deploy.sh
 ```
-Terraform prints outputs including `app_url`, `github_oauth_callback_url`, and
-`admin_app_role_value`. If a non-default hostname was assigned, a check warns you
-to set `app_base_url` and re-apply (see below).
+The script:
+1. uses Terraform to materialise the unique name (no Azure resources yet) and
+   prints the exact **Homepage** and **callback** URLs;
+2. pauses while you create the GitHub OAuth App at
+   <https://github.com/settings/developers> with those URLs and paste its
+   client ID/secret (and the PAT) into `terraform.tfvars`;
+3. runs the full `terraform apply`;
+4. prints the `az webapp up` command to deploy the code.
 
-### 5. Deploy the application code
-From the repo root (not `infra/`):
+> Prefer to run it manually? Do
+> `terraform apply -target=random_string.suffix` → `terraform output -raw app_url`
+> to learn the URL, configure the OAuth App, fill in `terraform.tfvars`, then
+> `terraform apply`.
+
+### 4. Deploy the application code
+From the repo root, using the name the script printed (or
+`terraform -chdir=infra output -raw app_name`):
 ```bash
 az webapp up \
   --name <app_name> \
@@ -113,20 +119,20 @@ This zips and uploads the code; App Service builds it with Oryx
 (`pip install -r requirements.txt`) and runs `gunicorn app:app`. The SQLite
 database is created automatically under the persistent `/home/data/` directory.
 
-### 6. Grant admin access
+### 5. Grant admin access
 If you didn't pass `admin_principal_object_ids`, assign users to the **admin**
 app role: Entra admin center → **Enterprise applications** → `<app_name>-admin`
 → **Users and groups** → add users with the `admin_app_role_value` role.
 
-### 7. Verify
-- `https://<app_name>.azurewebsites.net/healthz` → `{"status":"ok"}`.
+### 6. Verify
+- `<app_url>/healthz` → `{"status":"ok"}`.
 - `/admin` redirects you through Entra sign-in; after consent you see the org
   list. Add an org, open its QR, scan it, and complete the GitHub join flow.
 
-> **Custom / regional hostname:** all URLs derive from `app_name`. If Azure
-> assigns a different hostname (custom domain or unique-default-hostname), set
-> `app_base_url = "https://<actual-host>"` in `terraform.tfvars`, re-apply, and
-> update the GitHub OAuth callback to match.
+> **Custom / regional hostname:** all URLs derive from the resolved name. If
+> Azure assigns a different hostname (custom domain or unique-default-hostname),
+> set `app_base_url = "https://<actual-host>"` in `terraform.tfvars`, re-apply,
+> and update the GitHub OAuth callback to match.
 
 > **Dockerfile note:** the Azure deploy uses App Service's built-in Python
 > runtime (Oryx), **not** the `Dockerfile`. The `Dockerfile` is kept only for

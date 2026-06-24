@@ -1,6 +1,22 @@
 variable "app_name" {
-  description = "Globally-unique name for the App Service (becomes <app_name>.azurewebsites.net)."
+  description = <<-EOT
+    Globally-unique name for the App Service (becomes <app_name>.azurewebsites.net).
+    Leave empty to auto-generate "<app_name_prefix>-<random>" — recommended, so you
+    never have to invent a unique name.
+  EOT
   type        = string
+  default     = ""
+
+  validation {
+    condition     = var.app_name == "" || can(regex("^[a-z0-9][a-z0-9-]{1,58}[a-z0-9]$", var.app_name))
+    error_message = "app_name must be 2-60 chars, lowercase alphanumeric or hyphens, not starting/ending with a hyphen."
+  }
+}
+
+variable "app_name_prefix" {
+  description = "Prefix for the auto-generated app name when app_name is left empty."
+  type        = string
+  default     = "qr-org-join"
 }
 
 variable "location" {

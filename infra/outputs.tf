@@ -1,5 +1,20 @@
+output "app_name" {
+  description = "Resolved App Service name (auto-generated when app_name is left empty)."
+  value       = local.app_name
+}
+
+output "resource_group_name" {
+  description = "Resource group the app is deployed into."
+  value       = azurerm_resource_group.this.name
+}
+
 output "app_url" {
   description = "Public URL of the deployed app."
+  value       = local.app_url
+}
+
+output "github_oauth_homepage_url" {
+  description = "Set this as the GitHub OAuth App 'Homepage URL'."
   value       = local.app_url
 }
 

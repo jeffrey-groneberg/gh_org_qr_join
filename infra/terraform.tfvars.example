@@ -1,9 +1,16 @@
 # Copy to terraform.tfvars and fill in. Do NOT commit terraform.tfvars.
-app_name  = "my-qr-org-join"     # must be globally unique
+
+# Leave app_name empty to auto-generate a globally-unique "<prefix>-<random>"
+# name (recommended — run ./deploy.sh to learn it before configuring GitHub).
+# Set it explicitly only if you want a fixed name.
+# app_name        = "my-qr-org-join"
+# app_name_prefix = "qr-org-join"
+
 location  = "westeurope"
 tenant_id = "00000000-0000-0000-0000-000000000000"
 
 # GitHub OAuth App (participant identity) + classic PAT (admin:org) for invites.
+# When auto-naming, fill these in after ./deploy.sh prints the callback URL.
 github_client_id     = "Iv1xxxxxxxxxxxxxxxxx"
 github_client_secret = "replace-me"
 github_invite_token  = "ghp_replace_me"
@@ -15,4 +22,4 @@ github_invite_token  = "ghp_replace_me"
 # admin_app_role_value = "admin"
 # member_role          = "member"
 # sku_name             = "B1"
-# app_base_url         = "https://my-qr-org-join.azurewebsites.net"
+# app_base_url         = "https://<actual-host>"

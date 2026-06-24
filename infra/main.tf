@@ -1,7 +1,21 @@
 locals {
+  # Use the provided name, or auto-generate "<prefix>-<random>" for global
+  # uniqueness so the operator never has to invent one.
+  app_name = var.app_name != "" ? var.app_name : "${var.app_name_prefix}-${random_string.suffix.result}"
+
   # Default to the standard azurewebsites.net hostname; override via app_base_url
   # for regional hostnames or custom domains.
-  app_url = var.app_base_url != "" ? var.app_base_url : "https://${var.app_name}.azurewebsites.net"
+  app_url = var.app_base_url != "" ? var.app_base_url : "https://${local.app_name}.azurewebsites.net"
+}
+
+# Random suffix used only when app_name is left empty. 6 lowercase-alphanumeric
+# characters make a global hostname collision astronomically unlikely.
+resource "random_string" "suffix" {
+  length  = 6
+  lower   = true
+  upper   = false
+  numeric = true
+  special = false
 }
 
 resource "azurerm_resource_group" "this" {
@@ -10,7 +24,7 @@ resource "azurerm_resource_group" "this" {
 }
 
 resource "azurerm_service_plan" "this" {
-  name                = "${var.app_name}-plan"
+  name                = "${local.app_name}-plan"
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_resource_group.this.location
   os_type             = "Linux"
@@ -18,7 +32,7 @@ resource "azurerm_service_plan" "this" {
 }
 
 resource "azurerm_linux_web_app" "this" {
-  name                = var.app_name
+  name                = local.app_name
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_service_plan.this.location
   service_plan_id     = azurerm_service_plan.this.id

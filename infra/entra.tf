@@ -7,7 +7,7 @@ data "azuread_client_config" "current" {}
 resource "random_uuid" "admin_role" {}
 
 resource "azuread_application" "admin" {
-  display_name     = "${var.app_name}-admin"
+  display_name     = "${local.app_name}-admin"
   owners           = [data.azuread_client_config.current.object_id]
   sign_in_audience = "AzureADMyOrg"
 
