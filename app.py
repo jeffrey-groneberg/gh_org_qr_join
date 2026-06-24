@@ -19,6 +19,8 @@ import logging
 import os
 
 from flask import Flask, redirect, url_for
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.exc import OperationalError
 
 from admin import admin_bp
 from auth import auth_bp
@@ -40,6 +42,21 @@ def _configure_logging() -> None:
     )
     # Quiet noisy access logs from the dev server unless explicitly debugging.
     logging.getLogger("werkzeug").setLevel(max(level, logging.WARNING))
+
+
+def _init_schema() -> None:
+    """Create tables idempotently, tolerating concurrent gunicorn workers.
+
+    Each worker runs the app factory, so several may call ``create_all`` at once
+    on the shared SQLite file. ``create_all`` checks-then-creates, so a race can
+    surface as "table already exists" — safe to ignore once the schema is there.
+    """
+    try:
+        db.create_all()
+    except OperationalError:
+        if not sa_inspect(db.engine).has_table("orgs"):
+            raise
+        logger.info("Schema already present (created by a concurrent worker).")
 
 
 def create_app() -> Flask:
@@ -69,7 +86,7 @@ def create_app() -> Flask:
 
     config.ensure_sqlite_dir()
     with app.app_context():
-        db.create_all()
+        _init_schema()
 
     logger.info(
         "QR Org Join started (telemetry=%s, db=%s)",
