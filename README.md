@@ -8,6 +8,12 @@ the code, signs in with GitHub (identity only), and is invited into that org.
 Member management — accepting invitations, roles, removals — stays on
 GitHub.com. This app only creates the invitation.
 
+Orgs may be deleted on GitHub over time. From the admin list, **Check** validates
+each org against the GitHub API using the invite PAT and reports one of: it
+exists and the PAT can invite (OK), it exists but the PAT can't manage it (no
+access), or it no longer exists (missing) — in which case you're prompted to
+remove it from the list.
+
 ## How it works
 
 1. The admin signs in (Entra ID, via App Service Easy Auth) and adds an org
@@ -132,7 +138,8 @@ app role: Entra admin center → **Enterprise applications** → `<app_name>-adm
 - `extensions.py` — shared SQLAlchemy `db`
 - `models.py` — `Org` model
 - `auth.py` — Easy Auth admin gate (`admin_required`)
-- `admin.py` — org-list CRUD + QR page
+- `github.py` — GitHub API helpers (`check_org_status`: ok/no_access/missing)
+- `admin.py` — org-list CRUD + QR page + org check
 - `participants.py` — GitHub OAuth identity + join
 - `templates/` — server-rendered Jinja (GitHub dark theme)
 - `infra/` — Terraform IaC for Azure

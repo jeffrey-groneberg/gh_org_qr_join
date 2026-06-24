@@ -98,6 +98,30 @@
         margin-bottom: 20px;
         text-align: left;
       }
+      .warn {
+        background: #2b2410;
+        border: 1px solid #d29922;
+        color: #f2cc60;
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-size: 0.85rem;
+        margin-bottom: 20px;
+        text-align: left;
+      }
+      .check-banner { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+      .check-banner form { margin: 0; }
+      .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+      .badge.ok { color: #b9f6ca; border-color: var(--notice-border); }
+      .badge.no_access { color: #f2cc60; border-color: #d29922; }
+      .badge.missing, .badge.error { color: #ffdcd7; border-color: var(--danger-border); }
       .success { text-align: left; }
       .success h2 { font-size: 1.1rem; margin: 0 0 8px; }
       .success p { color: var(--muted); font-size: 0.9rem; margin: 0 0 16px; }

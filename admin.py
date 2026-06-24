@@ -22,8 +22,9 @@ from flask import (
 )
 from sqlalchemy.exc import IntegrityError
 
-from auth import admin_required
+from auth import admin_required, current_admin
 from extensions import db
+from github import check_org_status
 from models import VALID_ROLES, Org
 
 admin_bp = Blueprint("admin", __name__)
@@ -58,13 +59,15 @@ def _clean_role(raw: str) -> str:
 def list_orgs():
     """List registered orgs with the add form and per-org actions."""
     orgs = Org.query.order_by(Org.display_name, Org.slug).all()
+    admin = current_admin()
     return render_template(
         "admin_list.html",
         orgs=orgs,
-        admin_name=session.get("admin_name"),
+        admin_name=admin.get("name") if admin else None,
         default_role=_config().default_member_role,
         error=session.pop("admin_error", None),
         notice=session.pop("admin_notice", None),
+        check_result=session.pop("check_result", None),
         csrf_token=_ensure_admin_csrf(),
     )
 
@@ -122,6 +125,25 @@ def delete_org(org_id: int):
     db.session.delete(org)
     db.session.commit()
     session["admin_notice"] = f"Removed '{name}'."
+    return redirect(url_for("admin.list_orgs"))
+
+
+@admin_bp.post("/admin/orgs/<int:org_id>/check")
+@admin_required
+def check_org(org_id: int):
+    """Validate an org against GitHub via the invite PAT and report the result."""
+    _check_admin_csrf()
+    org = db.session.get(Org, org_id)
+    if org is None:
+        abort(404)
+    result = check_org_status(_config().invite_token, org.slug)
+    session["check_result"] = {
+        "org_id": org.id,
+        "slug": org.slug,
+        "name": org.name,
+        "status": result.status,
+        "detail": result.detail,
+    }
     return redirect(url_for("admin.list_orgs"))
 
 
