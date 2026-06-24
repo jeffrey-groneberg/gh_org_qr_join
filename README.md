@@ -9,11 +9,12 @@ Member management — accepting invitations, roles, removals — stays on
 GitHub.com. This app only creates the invitation.
 
 Orgs may be deleted on GitHub over time. When you **add** an org it is validated
-against GitHub first — a non-existent org is rejected, and one the PAT can't
-manage is added with a warning. From the admin list, **Check** re-validates any
-org on demand and reports one of: it exists and the PAT can invite (OK), it
-exists but the PAT can't manage it (no access), or it no longer exists (missing)
-— in which case you're prompted to remove it from the list.
+against GitHub first — it is only added if the invite PAT can actually manage it
+(send invitations); a non-existent org, one the PAT can't access, or one that
+can't be verified is rejected with an explanation. From the admin list, **Check**
+re-validates any org on demand and reports one of: it exists and the PAT can
+invite (OK), it exists but the PAT can't manage it (no access), or it no longer
+exists (missing) — in which case you're prompted to remove it from the list.
 
 ## How it works
 

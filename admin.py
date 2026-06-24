@@ -90,12 +90,15 @@ def create_org():
         session["admin_error"] = f"Organization '{slug}' is already in the list."
         return redirect(url_for("admin.list_orgs"))
 
-    # Validate against GitHub: refuse to add an org that does not exist.
+    # Validate against GitHub: only add an org the invite PAT can actually manage.
     result = check_org_status(_config().invite_token, slug)
-    if result.status == "missing":
-        session["admin_error"] = (
-            f"'{slug}' was not found on GitHub. Double-check the organization login."
-        )
+    if result.status != "ok":
+        if result.status == "missing":
+            session["admin_error"] = (
+                f"'{slug}' was not found on GitHub. Double-check the organization login."
+            )
+        else:
+            session["admin_error"] = f"Cannot add '{slug}': {result.detail}"
         return redirect(url_for("admin.list_orgs"))
 
     org = Org(slug=slug, display_name=display_name or slug, member_role=role)
@@ -108,15 +111,6 @@ def create_org():
         return redirect(url_for("admin.list_orgs"))
 
     session["admin_notice"] = f"Added '{org.name}'."
-    # Surface a warning banner if the org exists but couldn't be fully verified.
-    if result.status != "ok":
-        session["check_result"] = {
-            "org_id": org.id,
-            "slug": org.slug,
-            "name": org.name,
-            "status": result.status,
-            "detail": result.detail,
-        }
     return redirect(url_for("admin.list_orgs"))
 
 
