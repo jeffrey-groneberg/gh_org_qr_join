@@ -17,7 +17,7 @@
     <div class="{{ cr_class }} check-banner" role="status">
       <span><strong>{{ check_result.name }}</strong> — {{ check_result.detail }}</span>
       {% if check_result.status == 'missing' %}
-        <form method="post" action="{{ url_for('admin.delete_org', org_id=check_result.org_id) }}">
+        <form method="post" action="{{ url_for('admin.delete_org', slug=check_result.slug) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <button class="btn btn-danger btn-sm" type="submit">Remove from list</button>
         </form>
@@ -36,7 +36,7 @@
             <td>{{ org.display_name }}</td>
             <td>
               <code>{{ org.slug }}</code>
-              {% if check_result and check_result.org_id == org.id %}
+              {% if check_result and check_result.slug == org.slug %}
                 <span class="badge {{ check_result.status }}">
                   {{ {'ok': 'OK', 'no_access': 'no access', 'missing': 'missing', 'error': 'error'}[check_result.status] }}
                 </span>
@@ -45,12 +45,12 @@
             <td>{{ org.member_role }}</td>
             <td>
               <div class="actions">
-                <form method="post" action="{{ url_for('admin.check_org', org_id=org.id) }}">
+                <form method="post" action="{{ url_for('admin.check_org', slug=org.slug) }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                   <button class="btn btn-secondary btn-sm" type="submit">Check</button>
                 </form>
-                <a class="btn btn-secondary btn-sm" href="{{ url_for('admin.org_qr', org_id=org.id) }}" target="_blank" rel="noopener">QR</a>
-                <form method="post" action="{{ url_for('admin.delete_org', org_id=org.id) }}"
+                <a class="btn btn-secondary btn-sm" href="{{ url_for('admin.org_qr', slug=org.slug) }}" target="_blank" rel="noopener">QR</a>
+                <form method="post" action="{{ url_for('admin.delete_org', slug=org.slug) }}"
                       onsubmit="return confirm('Remove {{ org.display_name }} from the list?');">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                   <button class="btn btn-danger btn-sm" type="submit">Remove</button>

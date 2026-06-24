@@ -10,15 +10,17 @@ Identity is split across two independent systems:
   * **GitHub OAuth App** identifies the *participant* (empty scope) so we learn
     their login before inviting them.
 
-A single classic PAT (``admin:org``) performs every org invitation, so no
-per-org secret is ever stored in the database.
+A single classic PAT (``admin:org``) performs every org invitation, and orgs are
+stored in Cosmos DB accessed via managed identity, so no data-store or per-org
+secret is ever held by the app.
+
+This module is the single place that reads ``os.environ``; everything else
+depends on a ``Config`` instance.
 """
 
 from __future__ import annotations
 
 import os
-
-from sqlalchemy.engine import make_url
 
 
 def _require_env(name: str) -> str:
@@ -50,11 +52,13 @@ class Config:
         self.base_url = _require_env("APP_BASE_URL").rstrip("/")
         self.cookie_secure = self.base_url.lower().startswith("https://")
 
-        # --- Database --------------------------------------------------------
-        # On Azure App Service put the file under /home (persistent), e.g.
-        #   sqlite:////home/data/qr_org_join.db
-        self.database_url = (
-            os.environ.get("DATABASE_URL", "").strip() or "sqlite:///qr_org_join.db"
+        # --- Cosmos DB (orgs store; passwordless via managed identity) -------
+        self.cosmos_endpoint = _require_env("COSMOS_ENDPOINT")
+        self.cosmos_database = (
+            os.environ.get("COSMOS_DATABASE", "qrorgjoin").strip() or "qrorgjoin"
+        )
+        self.cosmos_container = (
+            os.environ.get("COSMOS_CONTAINER", "orgs").strip() or "orgs"
         )
 
         # --- GitHub OAuth App (participant identity, empty scope) ------------
@@ -73,6 +77,14 @@ class Config:
         # no Easy Auth in front of the app. Never enable in production.
         self.admin_dev_bypass = _bool_env("ADMIN_DEV_BYPASS")
 
+        # --- Observability ---------------------------------------------------
+        self.log_level = os.environ.get("LOG_LEVEL", "INFO").strip().upper() or "INFO"
+        # An empty value disables telemetry — the configuration value drives the
+        # decision, not any inspection of the runtime environment.
+        self.app_insights_connection_string = os.environ.get(
+            "APPLICATIONINSIGHTS_CONNECTION_STRING", ""
+        ).strip()
+
         # --- Defaults --------------------------------------------------------
         # Default role applied to a new org if the admin doesn't pick one.
         self.default_member_role = (
@@ -89,19 +101,3 @@ class Config:
     def org_join_url(self, slug: str) -> str:
         """Public URL a participant lands on (encoded in the org's QR code)."""
         return f"{self.base_url}/orgs/{slug}"
-
-    def ensure_sqlite_dir(self) -> None:
-        """Create the parent directory for a file-backed SQLite database.
-
-        On Azure App Service the DB lives at /home/data/... which persists, but
-        the directory does not exist on a fresh app — SQLite creates the file,
-        not its parent — so the first write would fail without this.
-        """
-        url = make_url(self.database_url)
-        if url.get_backend_name() != "sqlite":
-            return
-        if not url.database or url.database == ":memory:":
-            return
-        directory = os.path.dirname(url.database)
-        if directory:
-            os.makedirs(directory, exist_ok=True)

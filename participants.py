@@ -51,8 +51,12 @@ def _config():
     return current_app.config["APP_CONFIG"]
 
 
+def _store():
+    return current_app.config["ORG_STORE"]
+
+
 def _get_org_or_404(slug: str) -> Org:
-    org = Org.query.filter_by(slug=slug).first()
+    org = _store().get(slug)
     if org is None:
         abort(404)
     return org

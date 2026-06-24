@@ -35,8 +35,9 @@ exists (missing) — in which case you're prompted to remove it from the list.
 | GitHub OAuth App (empty scope) | Identifies the participant |
 | GitHub classic PAT (`admin:org`) | Creates every org invitation |
 
-No per-org secret is stored; the database holds only org slug, display name, and
-default join role.
+No per-org secret is stored; each org is a small document (slug, display name,
+default join role) in **Cosmos DB for NoSQL** (serverless), accessed
+passwordlessly via **managed identity** — the app holds no database keys.
 
 ## Run locally
 
@@ -45,14 +46,17 @@ Requires Python 3.10+ (the project targets 3.12, matching Azure).
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env            # fill in values
+cp .env.example .env            # fill in values (incl. COSMOS_ENDPOINT)
 export ADMIN_DEV_BYPASS=1       # treat local user as admin (no Easy Auth locally)
+az login                        # DefaultAzureCredential uses this for Cosmos
 set -a; . ./.env; set +a
 python app.py                   # http://127.0.0.1:8000
 ```
 
-You'll need a GitHub OAuth App (callback `http://127.0.0.1:8000/callback`) and a
-classic PAT with `admin:org` for a test org you own.
+You'll need a GitHub OAuth App (callback `http://127.0.0.1:8000/callback`), a
+classic PAT with `admin:org` for a test org you own, and a Cosmos DB account
+(`COSMOS_ENDPOINT`) on which your user has the **Cosmos DB Built-in Data
+Contributor** role — Terraform can grant it via `cosmos_data_principal_object_ids`.
 
 Logs go to stdout at `LOG_LEVEL` (default INFO). Application Insights stays off
 locally unless `APPLICATIONINSIGHTS_CONNECTION_STRING` is set.
@@ -146,13 +150,13 @@ app role: Entra admin center → **Enterprise applications** → `<app_name>-adm
 
 ## Layout
 
-- `app.py` — application factory + WSGI entry (`gunicorn app:app`)
-- `config.py` — env-driven configuration
-- `extensions.py` — shared SQLAlchemy `db`
-- `models.py` — `Org` model
+- `app.py` — pure app factory `create_app(config, store)` + composition root
+- `config.py` — env-driven configuration (the only place that reads `os.environ`)
+- `models.py` — `Org` dataclass (Cosmos document)
+- `repository.py` — `OrgStore` interface + `CosmosOrgStore` implementation
 - `auth.py` — Easy Auth admin gate (`admin_required`)
 - `github.py` — GitHub API helpers (`check_org_status`: ok/no_access/missing)
-- `telemetry.py` — optional Azure Monitor / Application Insights wiring
+- `telemetry.py` — Azure Monitor / Application Insights wiring (config-driven)
 - `admin.py` — org-list CRUD + QR page + org check
 - `participants.py` — GitHub OAuth identity + join
 - `templates/` — server-rendered Jinja (GitHub dark theme)

@@ -2,7 +2,8 @@
 
 This manages only the app's list of joinable orgs (slug + display name +
 default role) and renders each org's QR code for projecting. Member management
-(invites, roles, removals) is intentionally left to GitHub.com.
+(invites, roles, removals) is intentionally left to GitHub.com. Persistence is
+provided by the injected ``OrgStore`` on ``current_app.config["ORG_STORE"]``.
 """
 
 from __future__ import annotations
@@ -21,12 +22,11 @@ from flask import (
     session,
     url_for,
 )
-from sqlalchemy.exc import IntegrityError
 
 from auth import admin_required, current_admin
-from extensions import db
 from github import check_org_status
 from models import VALID_ROLES, Org
+from repository import OrgExistsError
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -35,6 +35,17 @@ logger = logging.getLogger(__name__)
 
 def _config():
     return current_app.config["APP_CONFIG"]
+
+
+def _store():
+    return current_app.config["ORG_STORE"]
+
+
+def _get_org_or_404(slug: str) -> Org:
+    org = _store().get(slug)
+    if org is None:
+        abort(404)
+    return org
 
 
 def _ensure_admin_csrf() -> str:
@@ -61,11 +72,10 @@ def _clean_role(raw: str) -> str:
 @admin_required
 def list_orgs():
     """List registered orgs with the add form and per-org actions."""
-    orgs = Org.query.order_by(Org.display_name, Org.slug).all()
     admin = current_admin()
     return render_template(
         "admin_list.html",
-        orgs=orgs,
+        orgs=_store().list(),
         admin_name=admin.get("name") if admin else None,
         default_role=_config().default_member_role,
         error=session.pop("admin_error", None),
@@ -89,7 +99,7 @@ def create_org():
         return redirect(url_for("admin.list_orgs"))
 
     # Reject duplicates before hitting the GitHub API.
-    if Org.query.filter_by(slug=slug).first() is not None:
+    if _store().get(slug) is not None:
         session["admin_error"] = f"Organization '{slug}' is already in the list."
         return redirect(url_for("admin.list_orgs"))
 
@@ -106,11 +116,9 @@ def create_org():
         return redirect(url_for("admin.list_orgs"))
 
     org = Org(slug=slug, display_name=display_name or slug, member_role=role)
-    db.session.add(org)
     try:
-        db.session.commit()
-    except IntegrityError:
-        db.session.rollback()
+        _store().add(org)
+    except OrgExistsError:
         session["admin_error"] = f"Organization '{slug}' is already in the list."
         return redirect(url_for("admin.list_orgs"))
 
@@ -119,50 +127,43 @@ def create_org():
     return redirect(url_for("admin.list_orgs"))
 
 
-@admin_bp.post("/admin/orgs/<int:org_id>")
+@admin_bp.post("/admin/orgs/<slug>")
 @admin_required
-def update_org(org_id: int):
+def update_org(slug: str):
     """Rename an org or change its default join role (slug is immutable)."""
     _check_admin_csrf()
-    org = db.session.get(Org, org_id)
+    _get_org_or_404(slug)
+    display_name = request.form.get("display_name", "").strip() or slug
+    role = _clean_role(request.form.get("member_role", ""))
+    org = _store().update(slug, display_name=display_name, member_role=role)
     if org is None:
         abort(404)
-    org.display_name = request.form.get("display_name", "").strip() or org.slug
-    org.member_role = _clean_role(request.form.get("member_role", ""))
-    db.session.commit()
     session["admin_notice"] = f"Updated '{org.name}'."
     logger.info("Org updated (slug=%s, role=%s)", org.slug, org.member_role)
     return redirect(url_for("admin.list_orgs"))
 
 
-@admin_bp.post("/admin/orgs/<int:org_id>/delete")
+@admin_bp.post("/admin/orgs/<slug>/delete")
 @admin_required
-def delete_org(org_id: int):
+def delete_org(slug: str):
     """Remove an org from the app's list (does not touch GitHub)."""
     _check_admin_csrf()
-    org = db.session.get(Org, org_id)
-    if org is None:
-        abort(404)
+    org = _get_org_or_404(slug)
     name = org.name
-    slug = org.slug
-    db.session.delete(org)
-    db.session.commit()
+    _store().delete(slug)
     session["admin_notice"] = f"Removed '{name}'."
     logger.info("Org removed (slug=%s)", slug)
     return redirect(url_for("admin.list_orgs"))
 
 
-@admin_bp.post("/admin/orgs/<int:org_id>/check")
+@admin_bp.post("/admin/orgs/<slug>/check")
 @admin_required
-def check_org(org_id: int):
+def check_org(slug: str):
     """Validate an org against GitHub via the invite PAT and report the result."""
     _check_admin_csrf()
-    org = db.session.get(Org, org_id)
-    if org is None:
-        abort(404)
+    org = _get_org_or_404(slug)
     result = check_org_status(_config().invite_token, org.slug)
     session["check_result"] = {
-        "org_id": org.id,
         "slug": org.slug,
         "name": org.name,
         "status": result.status,
@@ -172,14 +173,12 @@ def check_org(org_id: int):
     return redirect(url_for("admin.list_orgs"))
 
 
-@admin_bp.get("/admin/orgs/<int:org_id>/qr")
+@admin_bp.get("/admin/orgs/<slug>/qr")
 @admin_required
-def org_qr(org_id: int):
+def org_qr(slug: str):
     """Full-screen QR code for an org, for projecting to participants."""
     config = _config()
-    org = db.session.get(Org, org_id)
-    if org is None:
-        abort(404)
+    org = _get_org_or_404(slug)
     target = config.org_join_url(org.slug)
     qr_svg = segno.make(target, error="m").svg_inline(scale=10)
     return render_template("admin_qr.html", org=org, qr_svg=qr_svg, target=target)

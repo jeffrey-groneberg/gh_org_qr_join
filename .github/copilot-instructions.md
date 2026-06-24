@@ -20,40 +20,48 @@ for them. Validate changes by building the app factory (below).
   python app.py          # or: flask --app app run --debug --port 8000
   ```
   `app.py` exposes the WSGI callable `app` (so `gunicorn app:app` works).
-- Smoke-test the factory without a server (used to validate changes here):
+- Smoke-test the factory without a server or Cosmos (inject a fake store from
+  outside — the app has no test/env awareness):
   ```bash
-  FLASK_SECRET_KEY=x APP_BASE_URL=http://127.0.0.1:8000 DATABASE_URL=sqlite:///:memory: \
+  FLASK_SECRET_KEY=x APP_BASE_URL=http://127.0.0.1:8000 \
+  COSMOS_ENDPOINT=https://dummy.documents.azure.com:443/ \
   GITHUB_CLIENT_ID=x GITHUB_CLIENT_SECRET=x GITHUB_INVITE_TOKEN=x ADMIN_DEV_BYPASS=1 \
-  python -c "import app; print([str(r) for r in app.app.url_map.iter_rules()])"
+  python -c "import app; from config import Config; \
+    a=app.create_app(Config(), object()); print(sorted(str(r) for r in a.url_map.iter_rules()))"
   ```
+  (`object()` stands in for any `OrgStore`; provide a real fake to exercise routes.)
 - The venv (`.venv`) targets Python 3.12 (matching the Azure runtime); type
   hints use `from __future__ import annotations`.
 - Container: `Dockerfile` runs `gunicorn --bind 0.0.0.0:${PORT} app:app` as a
   non-root user — **local dev / portability only**. The Azure deploy uses App
   Service's built-in Python runtime (Oryx), not this image. All config is via
   env vars — see `.env.example`.
-- Deploy: Terraform in `infra/` provisions Azure App Service + Entra Easy Auth.
-  Validate IaC with `cd infra && terraform fmt -check && terraform init -backend=false && terraform validate`.
-  SQLite must live on the persistent `/home` volume (the Terraform sets
-  `DATABASE_URL=sqlite:////home/data/qr_org_join.db`).
+- Deploy: Terraform in `infra/` provisions App Service + Entra Easy Auth +
+  Cosmos DB (serverless) + Application Insights. Validate IaC with
+  `cd infra && terraform fmt -check && terraform init -backend=false && terraform validate`.
 
 ## Architecture (the big picture)
 
-Blueprint-based Flask app assembled by an application factory. Reading any one
-file is not enough — the wiring is split deliberately:
+Blueprint-based Flask app. Dependency injection separates the **pure factory**
+from the **composition root** — reading any one file is not enough:
 
-- `app.py` — `create_app()` factory: builds `Config`, stores it on
-  `app.config["APP_CONFIG"]`, initializes extensions, registers blueprints, runs
-  `db.create_all()`, and is the WSGI entry point.
-- `config.py` — all configuration is read **once** from the environment into a
-  `Config` object. `_require_env()` raises a clear startup error for missing
-  vars. Derived URLs (redirect URIs, per-org join URL) are `@property`/methods on
-  `Config`, never rebuilt ad hoc.
-- `extensions.py` — shared, unbound extension singletons (`db`, `oauth`) that the
-  factory binds with `init_app`. Import these here, never construct new ones.
-- `models.py` — SQLAlchemy `Org` model. Stores only non-secret metadata
-  (`slug`, `display_name`, `member_role`). Slug handling lives in
-  `Org.normalize_slug` / `Org.is_valid_slug`.
+- `app.py` — `create_app(config, org_store)` is a *pure factory*: it wires a
+  Flask app purely from its injected dependencies and knows nothing about the
+  environment or about testing. `build_app()` (the composition root, run at
+  module import for `gunicorn app:app`) constructs the real `Config`, telemetry,
+  and `CosmosOrgStore`, then calls `create_app`. Tests call `create_app` directly
+  with their own `OrgStore`.
+- `config.py` — the **only** module that reads `os.environ`. All configuration
+  (including secrets, Cosmos, App Insights connection string) is read **once**
+  into a `Config` object; `_require_env()` raises a clear startup error. Derived
+  URLs are `@property`/methods, never rebuilt ad hoc.
+- `models.py` — `Org` is a plain dataclass (a Cosmos document); the `slug` is its
+  id/partition key. Slug handling lives in `Org.normalize_slug` /
+  `Org.is_valid_slug`.
+- `repository.py` — `OrgStore` is the persistence **interface** (Protocol) the app
+  depends on; `CosmosOrgStore` is the Cosmos DB for NoSQL implementation
+  (passwordless via `DefaultAzureCredential`, connects lazily on first use). Get
+  it in a request via `current_app.config["ORG_STORE"]`.
 - `auth.py` — admin authentication/authorization via **App Service Easy Auth**.
   Easy Auth (configured to allow unauthenticated requests) signs the admin in at
   the platform level and injects claims as the `X-MS-CLIENT-PRINCIPAL` header;
@@ -66,8 +74,10 @@ file is not enough — the wiring is split deliberately:
 - `templates/` — server-rendered Jinja, all extending `base.html` (GitHub dark
   theme inline CSS).
 - `infra/` — Terraform (azurerm + azuread) for the Azure deployment: resource
-  group, Linux App Service Plan/Web App, app settings, and the Entra app
-  registration whose **admin** app role is wired into Easy Auth.
+  group, Linux App Service Plan/Web App (system-assigned identity), Cosmos DB
+  (serverless, key auth disabled) + data-plane RBAC role assignment, Application
+  Insights, and the Entra app registration whose **admin** app role is wired into
+  Easy Auth.
 
 ### Three credentials, each at minimum privilege
 
@@ -85,9 +95,15 @@ This separation is the core security design — keep it intact:
 
 ## Conventions specific to this codebase
 
+- **Dependency injection, not environment/test branching:** the app factory
+  receives its collaborators (config, `OrgStore`) as arguments. Application code
+  must never branch on "am I in Azure/local/tests" or know that tests exist —
+  wire concrete implementations in the composition root (`build_app`) and inject
+  fakes from tests. Behaviour is driven by injected dependencies and `Config`
+  values, not by sniffing the environment.
 - **Config access in blueprints:** never read `os.environ` outside `config.py`.
   Inside a request, get config via the module-local `_config()` helper
-  (`current_app.config["APP_CONFIG"]`).
+  (`current_app.config["APP_CONFIG"]`) and the store via `current_app.config["ORG_STORE"]`.
 - **GitHub API calls:** use the module-level shared `requests.Session`
   (connection pooling), always pass `timeout=HTTP_TIMEOUT` `(connect, read)`, and
   send the `Accept: application/vnd.github+json` and

@@ -77,6 +77,12 @@ variable "admin_principal_object_ids" {
   default     = []
 }
 
+variable "cosmos_data_principal_object_ids" {
+  description = "Object IDs of users to grant Cosmos data-plane access (e.g. developers running locally with az login)."
+  type        = list(string)
+  default     = []
+}
+
 # --- GitHub credentials (provided to the app as secret app settings) -------
 variable "github_client_id" {
   description = "GitHub OAuth App client ID (participant identity)."

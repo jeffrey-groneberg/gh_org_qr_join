@@ -47,3 +47,13 @@ output "application_insights_name" {
   description = "Application Insights component collecting logs and traces."
   value       = azurerm_application_insights.this.name
 }
+
+output "cosmosdb_account_name" {
+  description = "Cosmos DB account storing the org list."
+  value       = azurerm_cosmosdb_account.this.name
+}
+
+output "cosmosdb_endpoint" {
+  description = "Cosmos DB endpoint (set as COSMOS_ENDPOINT for local dev)."
+  value       = azurerm_cosmosdb_account.this.endpoint
+}

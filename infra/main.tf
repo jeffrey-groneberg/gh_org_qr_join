@@ -48,6 +48,70 @@ resource "azurerm_application_insights" "this" {
   application_type    = "web"
 }
 
+# --- Cosmos DB for NoSQL (serverless, key auth disabled) -------------------
+# Orgs are stored here and accessed passwordlessly via managed identity + RBAC.
+resource "azurerm_cosmosdb_account" "this" {
+  name                = "${local.app_name}-cosmos"
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
+  offer_type          = "Standard"
+  kind                = "GlobalDocumentDB"
+
+  # Force Entra ID (AAD) auth only — no account keys are issued or used.
+  local_authentication_enabled = false
+
+  capabilities {
+    name = "EnableServerless"
+  }
+
+  consistency_policy {
+    consistency_level = "Session"
+  }
+
+  geo_location {
+    location          = azurerm_resource_group.this.location
+    failover_priority = 0
+  }
+}
+
+resource "azurerm_cosmosdb_sql_database" "this" {
+  name                = "qrorgjoin"
+  resource_group_name = azurerm_resource_group.this.name
+  account_name        = azurerm_cosmosdb_account.this.name
+}
+
+resource "azurerm_cosmosdb_sql_container" "orgs" {
+  name                  = "orgs"
+  resource_group_name   = azurerm_resource_group.this.name
+  account_name          = azurerm_cosmosdb_account.this.name
+  database_name         = azurerm_cosmosdb_sql_database.this.name
+  partition_key_paths   = ["/id"]
+  partition_key_version = 2
+}
+
+# Grant the web app's managed identity data-plane access (Built-in Data
+# Contributor: read + write items). The role's well-known GUID is
+# 00000000-0000-0000-0000-000000000002.
+resource "azurerm_cosmosdb_sql_role_assignment" "app" {
+  resource_group_name = azurerm_resource_group.this.name
+  account_name        = azurerm_cosmosdb_account.this.name
+  role_definition_id  = "${azurerm_cosmosdb_account.this.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002"
+  principal_id        = azurerm_linux_web_app.this.identity[0].principal_id
+  scope               = azurerm_cosmosdb_account.this.id
+}
+
+# Optional: grant developers the same data role so they can run the app locally
+# against this account with `az login` (DefaultAzureCredential).
+resource "azurerm_cosmosdb_sql_role_assignment" "devs" {
+  for_each = toset(var.cosmos_data_principal_object_ids)
+
+  resource_group_name = azurerm_resource_group.this.name
+  account_name        = azurerm_cosmosdb_account.this.name
+  role_definition_id  = "${azurerm_cosmosdb_account.this.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002"
+  principal_id        = each.value
+  scope               = azurerm_cosmosdb_account.this.id
+}
+
 resource "azurerm_linux_web_app" "this" {
   name                = local.app_name
   resource_group_name = azurerm_resource_group.this.name
@@ -55,6 +119,11 @@ resource "azurerm_linux_web_app" "this" {
   service_plan_id     = azurerm_service_plan.this.id
 
   https_only = true
+
+  # System-assigned managed identity used for passwordless Cosmos DB access.
+  identity {
+    type = "SystemAssigned"
+  }
 
   site_config {
     always_on        = true
@@ -72,8 +141,11 @@ resource "azurerm_linux_web_app" "this" {
     # --- Application configuration (see .env.example) -----------------------
     FLASK_SECRET_KEY = random_password.flask_secret.result
     APP_BASE_URL     = local.app_url
-    # SQLite on the persistent /home volume so data survives restarts/deploys.
-    DATABASE_URL = "sqlite:////home/data/qr_org_join.db"
+
+    # Cosmos DB (orgs store) — accessed via managed identity, no keys.
+    COSMOS_ENDPOINT  = azurerm_cosmosdb_account.this.endpoint
+    COSMOS_DATABASE  = azurerm_cosmosdb_sql_database.this.name
+    COSMOS_CONTAINER = azurerm_cosmosdb_sql_container.orgs.name
 
     GITHUB_CLIENT_ID     = var.github_client_id
     GITHUB_CLIENT_SECRET = var.github_client_secret

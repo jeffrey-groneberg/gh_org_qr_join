@@ -2,97 +2,50 @@
 
 Admins manage a list of GitHub organizations through an Easy Auth-protected CRUD
 UI and project a per-org QR code. Participants scan the code, sign in with GitHub
-(identity only), and are invited into that org via a single classic PAT. The app
-never administers members itself — joining/accepting happens on GitHub.
+(identity only), and are invited into that org via a single classic PAT. Orgs are
+stored in Cosmos DB, accessed passwordlessly via managed identity.
 
-Three credentials, each at minimum privilege:
-  - Entra ID app role (via App Service Easy Auth) -> authorizes the admin.
-  - GitHub OAuth App -> identifies the participant (no scopes).
-  - GitHub classic PAT (admin:org) -> creates the invitation.
+This module separates two concerns:
 
-WSGI entrypoint: ``gunicorn app:app``  (or ``python app.py`` for local dev).
+  * ``create_app(config, org_store)`` — a *pure factory* that wires a Flask app
+    from its injected dependencies. It knows nothing about the environment or
+    about testing; tests call it directly with their own ``OrgStore``.
+  * the module-level ``app`` — the *composition root* that constructs the real
+    configuration, telemetry, and Cosmos-backed store, then builds the app. This
+    is what ``gunicorn app:app`` imports.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 
 from flask import Flask, redirect, url_for
-from sqlalchemy import inspect as sa_inspect
-from sqlalchemy.exc import OperationalError
 
 from admin import admin_bp
 from auth import auth_bp
 from config import Config
-from extensions import db
 from participants import participants_bp
+from repository import CosmosOrgStore, OrgStore
 from telemetry import configure_telemetry
 
 logger = logging.getLogger(__name__)
 
 
-def _configure_logging() -> None:
-    """Send logs to stdout (captured by App Service) at the configured level."""
-    level_name = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
-    level = getattr(logging, level_name, logging.INFO)
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
-    # Quiet noisy access logs from the dev server unless explicitly debugging.
-    logging.getLogger("werkzeug").setLevel(max(level, logging.WARNING))
-
-
-def _init_schema() -> None:
-    """Create tables idempotently, tolerating concurrent gunicorn workers.
-
-    Each worker runs the app factory, so several may call ``create_all`` at once
-    on the shared SQLite file. ``create_all`` checks-then-creates, so a race can
-    surface as "table already exists" — safe to ignore once the schema is there.
-    """
-    try:
-        db.create_all()
-    except OperationalError:
-        if not sa_inspect(db.engine).has_table("orgs"):
-            raise
-        logger.info("Schema already present (created by a concurrent worker).")
-
-
-def create_app() -> Flask:
-    config = Config()
-
-    # Logging first, then telemetry (which attaches its handler to the root
-    # logger and must run before the Flask app is created to instrument it).
-    _configure_logging()
-    telemetry_on = configure_telemetry()
-
+def create_app(config: Config, org_store: OrgStore) -> Flask:
+    """Build the Flask app from injected dependencies."""
     app = Flask(__name__)
     app.config["APP_CONFIG"] = config
+    app.config["ORG_STORE"] = org_store
     app.config["SECRET_KEY"] = config.secret_key
-    app.config["SQLALCHEMY_DATABASE_URI"] = config.database_url
-    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config.update(
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=config.cookie_secure,
     )
 
-    db.init_app(app)
-
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(participants_bp)
-
-    config.ensure_sqlite_dir()
-    with app.app_context():
-        _init_schema()
-
-    logger.info(
-        "QR Org Join started (telemetry=%s, db=%s)",
-        "on" if telemetry_on else "off",
-        config.database_url.split("://", 1)[0],
-    )
 
     @app.get("/")
     def index():
@@ -105,9 +58,42 @@ def create_app() -> Flask:
     return app
 
 
-app = create_app()
+def _configure_logging(level_name: str) -> None:
+    """Send logs to stdout (captured by App Service) at the configured level."""
+    level = getattr(logging, level_name, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    logging.getLogger("werkzeug").setLevel(max(level, logging.WARNING))
+
+
+def build_app() -> Flask:
+    """Composition root: construct real dependencies and wire the app."""
+    config = Config()
+
+    _configure_logging(config.log_level)
+    # Telemetry must be configured before the Flask app is created so its
+    # instrumentation can wrap it.
+    telemetry_on = configure_telemetry(config.app_insights_connection_string)
+
+    org_store = CosmosOrgStore(
+        endpoint=config.cosmos_endpoint,
+        database=config.cosmos_database,
+        container=config.cosmos_container,
+    )
+
+    app = create_app(config, org_store)
+    logger.info("QR Org Join started (telemetry=%s)", "on" if telemetry_on else "off")
+    return app
+
+
+# WSGI entry point for `gunicorn app:app` and `python app.py`.
+app = build_app()
 
 
 if __name__ == "__main__":
+    import os
+
     port = int(os.environ.get("PORT", "8000"))
     app.run(host="0.0.0.0", port=port)
