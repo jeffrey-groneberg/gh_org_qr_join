@@ -1,13 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Join {{ org.name }}{% endblock %}
 {% block body %}
+  <p class="eyebrow">Now boarding</p>
   <h1>Join <span class="org">{{ org.name }}</span></h1>
-  <p class="lead">Scan to join the organization on GitHub.</p>
+  <p class="lead">Scan to sign in with GitHub, then enter the code below.</p>
   <div class="qr">{{ qr_svg | safe }}</div>
   <p class="hint">{{ target }}</p>
   {% if org.passcode %}
-    <p class="lead">Enter this passcode to join:</p>
-    <div class="passcode">{{ org.passcode }}</div>
+    <p class="eyebrow">Join code</p>
+    <div class="flapcode lg" aria-label="Join passcode {{ org.passcode }}">
+      {% for ch in org.passcode %}<span class="flap">{{ ch }}</span>{% endfor %}
+    </div>
   {% endif %}
   <div class="footer-link">
     <a href="{{ url_for('admin.list_orgs') }}">&larr; Back to organizations</a>

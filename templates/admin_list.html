@@ -2,10 +2,11 @@
 {% block title %}Manage organizations{% endblock %}
 {% block card_class %}wide{% endblock %}
 {% block body %}
-  <h1>Joinable organizations</h1>
+  <p class="eyebrow">Organizer console</p>
+  <h1>Organizations</h1>
   <p class="lead">
     Signed in as <strong>{{ admin_name or "admin" }}</strong>.
-    Member management lives on GitHub — this only controls which orgs show a QR code.
+    Members are managed on GitHub — this controls which orgs show a QR code and passcode.
     <a href="{{ url_for('auth.logout') }}">Sign out</a>
   </p>
 
@@ -45,7 +46,7 @@
             <td>{{ org.member_role }}</td>
             <td>
               {% if org.passcode %}
-                <code>{{ org.passcode }}</code>
+                <code class="pass">{{ org.passcode }}</code>
               {% else %}
                 <span class="badge missing">not set</span>
               {% endif %}

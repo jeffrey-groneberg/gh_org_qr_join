@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Join {{ org.name }} on GitHub{% endblock %}
 {% block body %}
+  <p class="eyebrow">Join the org</p>
   <h1>Join <span class="org">{{ org.name }}</span></h1>
-  <p class="lead">Scan, sign in with GitHub, and join the organization.</p>
+  <p class="lead">Sign in with GitHub, enter the passcode, and you're on the team.</p>
 
   {% if error %}
     <div class="alert" role="alert">{{ error }}</div>
@@ -48,11 +49,11 @@
     <p class="who">Signed in as <strong>{{ user }}</strong></p>
     <form method="post" action="{{ url_for('participants.join', slug=org.slug) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-      <label for="passcode">Join passcode</label>
+      <label for="passcode">Join code</label>
       <input class="passcode-input" type="text" id="passcode" name="passcode"
              maxlength="12" autocomplete="off" autocapitalize="characters"
              spellcheck="false" placeholder="XXXXXXXX" required />
-      <p class="hint">Ask the organizers for the {{ org.name }} passcode.</p>
+      <p class="hint">Enter the code shown on the {{ org.name }} screen.</p>
       <button class="btn" type="submit">Join {{ org.name }}</button>
     </form>
     <div class="footer-link">

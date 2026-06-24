@@ -76,3 +76,6 @@ Thumbs.db
 .vscode/
 *.swp
 *~
+
+# Azure CLI deploy artifacts
+.azure/

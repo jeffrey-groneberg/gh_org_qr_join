@@ -4,19 +4,34 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}QR Org Join{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
     <style>
+      /* ---- Design system: "departure board" ----------------------------
+         Joining an org is boarding the build; the passcode is the gate code.
+         Palette is warm-slate (not GitHub black) with a single amber board
+         signal. Display/data faces are a deliberate Space superfamily pair. */
       :root {
-        --bg: #0d1117;
-        --card: #161b22;
-        --border: #30363d;
-        --text: #e6edf3;
-        --muted: #8b949e;
-        --accent: #238636;
-        --accent-hover: #2ea043;
-        --danger-bg: #3d1c1c;
-        --danger-border: #f85149;
-        --notice-bg: #12261e;
-        --notice-border: #2ea043;
+        --ink: #0e1116;
+        --ink-2: #0a0d12;
+        --surface: #161b24;
+        --surface-2: #1e2532;
+        --line: #2b3444;
+        --paper: #e9edf4;
+        --muted: #969fb0;
+        --amber: #ffb22e;
+        --amber-press: #e49b12;
+        --danger: #ff5f56;
+        --danger-soft: #3a1d1d;
+        --ok: #43d17a;
+        --ok-soft: #12271c;
+        --warn-soft: #2c2410;
+        --display: "Space Grotesk", system-ui, sans-serif;
+        --mono: "Space Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
       }
       * { box-sizing: border-box; }
       body {
@@ -25,144 +40,218 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 24px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-        background: var(--bg);
-        color: var(--text);
+        padding: 28px;
+        font-family: var(--display);
+        font-weight: 400;
+        line-height: 1.5;
+        color: var(--paper);
+        /* Faint board-grid texture so the dark surface isn't a flat default. */
+        background-color: var(--ink);
+        background-image:
+          radial-gradient(120% 90% at 50% -10%, rgba(255, 178, 46, 0.06), transparent 60%),
+          linear-gradient(var(--ink-2) 0 0);
+        background-attachment: fixed;
       }
       .card {
         width: 100%;
-        max-width: 480px;
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 32px;
+        max-width: 440px;
+        background: linear-gradient(180deg, var(--surface) 0%, var(--ink) 140%);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 36px 32px;
         text-align: center;
+        box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.8);
       }
-      .card.wide { max-width: 720px; text-align: left; }
-      h1 { font-size: 1.4rem; margin: 0 0 4px; }
-      .org { color: var(--accent-hover); }
-      p.lead { color: var(--muted); margin: 0 0 24px; font-size: 0.95rem; }
+      .card.wide { max-width: 780px; text-align: left; }
+
+      .eyebrow {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--amber);
+        margin: 0 0 14px;
+      }
+      h1 {
+        font-family: var(--display);
+        font-weight: 700;
+        font-size: 1.55rem;
+        letter-spacing: -0.015em;
+        margin: 0 0 6px;
+      }
+      h1 + h1 { margin-top: 36px; }
+      .org { color: var(--amber); }
+      p.lead { color: var(--muted); margin: 0 0 24px; font-size: 0.96rem; }
+      p.lead a { color: var(--paper); text-decoration: underline; text-underline-offset: 2px; }
+
+      /* ---- QR: a "ticket" panel ---------------------------------------- */
       .qr {
         background: #fff;
-        border-radius: 8px;
-        padding: 12px;
+        border-radius: 12px;
+        padding: 14px;
         display: inline-block;
         line-height: 0;
+        box-shadow: 0 0 0 1px var(--line), 0 14px 30px -18px rgba(0, 0, 0, 0.9);
       }
-      .qr svg { width: 200px; height: 200px; }
-      .hint { color: var(--muted); font-size: 0.8rem; margin: 12px 0 24px; }
+      .qr svg { width: 208px; height: 208px; display: block; }
+      .hint { color: var(--muted); font-size: 0.8rem; margin: 14px 0 24px; }
+
+      /* ---- Buttons ----------------------------------------------------- */
       .btn {
         display: inline-flex;
         align-items: center;
         justify-content: center;
         gap: 8px;
         width: 100%;
-        padding: 12px 16px;
-        border-radius: 8px;
-        border: 1px solid var(--border);
-        background: var(--accent);
-        color: #fff;
+        padding: 13px 18px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        background: var(--amber);
+        color: #1a1205;
+        font-family: var(--display);
         font-size: 1rem;
-        font-weight: 600;
+        font-weight: 700;
+        letter-spacing: 0.01em;
         text-decoration: none;
         cursor: pointer;
+        transition: transform 0.08s ease, background 0.15s ease, box-shadow 0.15s ease;
       }
-      .btn:hover { background: var(--accent-hover); }
+      .btn:hover { background: var(--amber-press); }
+      .btn:active { transform: translateY(1px); }
+      .btn:focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; }
       .btn svg { fill: currentColor; }
-      .btn-secondary { background: transparent; color: var(--text); }
-      .btn-secondary:hover { background: #21262d; }
-      .btn-danger { background: transparent; color: #ff7b72; border-color: var(--danger-border); }
-      .btn-danger:hover { background: var(--danger-bg); }
-      .btn-sm { width: auto; padding: 6px 12px; font-size: 0.85rem; }
+      .btn-secondary {
+        background: transparent;
+        color: var(--paper);
+        border-color: var(--line);
+      }
+      .btn-secondary:hover { background: var(--surface-2); }
+      .btn-danger {
+        background: transparent;
+        color: var(--danger);
+        border-color: rgba(255, 95, 86, 0.5);
+      }
+      .btn-danger:hover { background: var(--danger-soft); }
+      .btn-sm { width: auto; padding: 7px 13px; font-size: 0.82rem; border-radius: 8px; }
+
       form { margin: 0; }
-      .who { color: var(--muted); font-size: 0.9rem; margin-bottom: 16px; }
-      .who strong { color: var(--text); }
-      .alert {
-        background: var(--danger-bg);
-        border: 1px solid var(--danger-border);
-        color: #ffdcd7;
-        border-radius: 8px;
-        padding: 10px 12px;
+      .who { color: var(--muted); font-size: 0.92rem; margin-bottom: 18px; }
+      .who strong { color: var(--paper); }
+
+      /* ---- Status messages --------------------------------------------- */
+      .alert, .notice, .warn {
+        border-radius: 10px;
+        padding: 11px 14px;
         font-size: 0.85rem;
         margin-bottom: 20px;
         text-align: left;
+        border: 1px solid;
       }
-      .notice {
-        background: var(--notice-bg);
-        border: 1px solid var(--notice-border);
-        color: #b9f6ca;
-        border-radius: 8px;
-        padding: 10px 12px;
-        font-size: 0.85rem;
-        margin-bottom: 20px;
-        text-align: left;
-      }
-      .warn {
-        background: #2b2410;
-        border: 1px solid #d29922;
-        color: #f2cc60;
-        border-radius: 8px;
-        padding: 10px 12px;
-        font-size: 0.85rem;
-        margin-bottom: 20px;
-        text-align: left;
-      }
+      .alert { background: var(--danger-soft); border-color: var(--danger); color: #ffd9d6; }
+      .notice { background: var(--ok-soft); border-color: var(--ok); color: #b6f2cd; }
+      .warn { background: var(--warn-soft); border-color: var(--amber); color: #ffdf9e; }
+      .notice code { color: #b6f2cd; }
+
       .check-banner { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
       .check-banner form { margin: 0; }
+
       .badge {
         display: inline-block;
-        padding: 2px 8px;
-        border-radius: 10px;
-        font-size: 0.72rem;
-        font-weight: 600;
-        border: 1px solid var(--border);
+        padding: 2px 9px;
+        border-radius: 999px;
+        font-family: var(--mono);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        border: 1px solid var(--line);
         color: var(--muted);
       }
-      .badge.ok { color: #b9f6ca; border-color: var(--notice-border); }
-      .badge.no_access { color: #f2cc60; border-color: #d29922; }
-      .badge.missing, .badge.error { color: #ffdcd7; border-color: var(--danger-border); }
+      .badge.ok { color: var(--ok); border-color: var(--ok); }
+      .badge.no_access { color: var(--amber); border-color: var(--amber); }
+      .badge.missing, .badge.error { color: var(--danger); border-color: var(--danger); }
+
       .success { text-align: left; }
-      .success h2 { font-size: 1.1rem; margin: 0 0 8px; }
-      .success p { color: var(--muted); font-size: 0.9rem; margin: 0 0 16px; }
-      .footer-link { margin-top: 16px; }
+      .success h2 { font-size: 1.15rem; margin: 0 0 8px; }
+      .success p { color: var(--muted); font-size: 0.92rem; margin: 0 0 18px; }
+      .footer-link { margin-top: 18px; }
       .footer-link a { color: var(--muted); font-size: 0.8rem; text-decoration: none; }
-      .footer-link a:hover { text-decoration: underline; }
-      table { width: 100%; border-collapse: collapse; margin: 8px 0 24px; }
-      th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
-      th { color: var(--muted); font-weight: 600; }
+      .footer-link a:hover { color: var(--paper); text-decoration: underline; }
+
+      /* ---- Table (organizer console) ----------------------------------- */
+      table { width: 100%; border-collapse: collapse; margin: 10px 0 28px; }
+      th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--line); font-size: 0.9rem; }
+      th {
+        color: var(--muted);
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 0.7rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
       td .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-      label { display: block; font-size: 0.8rem; color: var(--muted); margin: 12px 0 4px; }
+
+      label { display: block; font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 14px 0 6px; }
       input[type="text"], select {
         width: 100%;
-        padding: 10px 12px;
-        border-radius: 8px;
-        border: 1px solid var(--border);
-        background: #0d1117;
-        color: var(--text);
-        font-size: 0.95rem;
+        padding: 11px 13px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: var(--ink-2);
+        color: var(--paper);
+        font-family: var(--display);
+        font-size: 0.96rem;
       }
-      .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
-      .row > div { flex: 1; min-width: 140px; }
-      code { color: var(--accent-hover); background: #0d1117; padding: 1px 5px; border-radius: 4px; }
-      .passcode {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 2rem;
+      input[type="text"]:focus, select:focus { outline: 2px solid var(--amber); outline-offset: 1px; border-color: var(--amber); }
+      .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; }
+      .row > div { flex: 1; min-width: 150px; }
+      code { font-family: var(--mono); color: var(--muted); background: var(--ink-2); padding: 2px 6px; border-radius: 5px; white-space: nowrap; }
+      code.pass { color: var(--amber); font-weight: 700; letter-spacing: 0.12em; font-size: 0.95rem; border: 1px solid var(--line); }
+
+      /* ---- Signature: split-flap passcode board ------------------------ */
+      .flapcode { display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 6px 0 18px; }
+      .flap {
+        position: relative;
+        min-width: 38px;
+        padding: 10px 4px;
+        font-family: var(--mono);
         font-weight: 700;
-        letter-spacing: 0.3em;
-        color: var(--accent-hover);
-        background: #0d1117;
-        border: 1px solid var(--border);
+        font-size: 1.7rem;
+        line-height: 1;
+        color: var(--amber);
+        text-align: center;
+        background: linear-gradient(180deg, #232b3a 0%, #161c27 50%, #10151e 50%, #1b222e 100%);
+        border: 1px solid var(--line);
         border-radius: 8px;
-        padding: 12px 16px;
-        display: inline-block;
-        margin: 4px 0 16px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 10px -4px rgba(0, 0, 0, 0.7);
       }
+      .flap::after {
+        content: "";
+        position: absolute;
+        left: 6px; right: 6px; top: 50%;
+        height: 1px;
+        background: rgba(0, 0, 0, 0.6);
+      }
+      .flapcode.lg .flap { min-width: 64px; padding: 18px 6px; font-size: 3rem; border-radius: 10px; }
+
+      /* Passcode entry echoes the board: monospace, spaced, amber caret. */
       input.passcode-input {
         text-transform: uppercase;
-        letter-spacing: 0.25em;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.42em;
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 1.25rem;
         text-align: center;
+        caret-color: var(--amber);
+      }
+      input.passcode-input::placeholder { letter-spacing: 0.3em; color: #3c4658; }
+
+      /* ---- Hero (landing) ---------------------------------------------- */
+      .hero h1 { font-size: clamp(2rem, 6vw, 2.9rem); line-height: 1.04; }
+      .hero .accent { color: var(--amber); }
+
+      @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; }
       }
     </style>
   </head>
