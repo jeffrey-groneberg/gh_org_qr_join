@@ -1,4 +1,10 @@
 # Minimal single-stage image for the QR org-join app.
+#
+# NOTE: This Dockerfile is for LOCAL development / portability only. The Azure
+# deployment (infra/) uses App Service's built-in Python runtime with an Oryx
+# build (application_stack.python_version + SCM_DO_BUILD_DURING_DEPLOYMENT), so
+# this image is NOT used by the Terraform deploy. To run it locally:
+#   docker build -t qr-org-join . && docker run --rm -p 8000:8000 --env-file .env qr-org-join
 FROM python:3.12-slim
 
 # Don't write .pyc files; flush stdout/stderr immediately for live logs.

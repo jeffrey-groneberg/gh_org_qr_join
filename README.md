@@ -67,6 +67,11 @@ Then deploy the code (e.g. `az webapp up` or zip deploy); Oryx builds it from
 `requirements.txt` and runs `gunicorn app:app`. SQLite is stored on the
 persistent `/home` volume so data survives restarts.
 
+> **Dockerfile note:** the Azure deploy uses App Service's built-in Python
+> runtime (Oryx), **not** the `Dockerfile`. The `Dockerfile` is kept only for
+> local development and portability (`docker run`); it plays no part in the
+> Terraform deployment.
+
 ## Layout
 
 - `app.py` — application factory + WSGI entry (`gunicorn app:app`)

@@ -29,7 +29,9 @@ for them. Validate changes by building the app factory (below).
 - The venv (`.venv`) targets Python 3.9; type hints use `from __future__ import
   annotations` so 3.10+ syntax (`str | None`) is fine.
 - Container: `Dockerfile` runs `gunicorn --bind 0.0.0.0:${PORT} app:app` as a
-  non-root user. All config is via env vars — see `.env.example`.
+  non-root user — **local dev / portability only**. The Azure deploy uses App
+  Service's built-in Python runtime (Oryx), not this image. All config is via
+  env vars — see `.env.example`.
 - Deploy: Terraform in `infra/` provisions Azure App Service + Entra Easy Auth.
   Validate IaC with `cd infra && terraform fmt -check && terraform init -backend=false && terraform validate`.
   SQLite must live on the persistent `/home` volume (the Terraform sets
