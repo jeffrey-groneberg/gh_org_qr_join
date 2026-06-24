@@ -78,6 +78,13 @@
   {% endif %}
 
   <h1>Add an organization</h1>
+  <p class="lead">
+    Don't have an organization yet? Provision one (MSFT/GitHub, with cost center)
+    via
+    <a href="https://github.com/msft-github-hackathons-organizer/bootstrap" target="_blank" rel="noopener">
+      msft-github-hackathons-organizer/bootstrap</a>,
+    then add its login below.
+  </p>
   <form method="post" action="{{ url_for('admin.create_org') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <div class="row">
