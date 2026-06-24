@@ -1,18 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Join {{ org.name }} on GitHub{% endblock %}
 {% block body %}
-  <p class="eyebrow">Join the org</p>
-  <h1>Join <span class="org">{{ org.name }}</span></h1>
-  <p class="lead">Sign in with GitHub, enter the passcode, and you're on the team.</p>
-
-  {% if error %}
-    <div class="alert" role="alert">{{ error }}</div>
-  {% endif %}
-
-  <div class="qr">{{ qr_svg | safe }}</div>
-  <p class="hint">Scan this code with your phone to open this page.</p>
-
   {% if not user %}
+    <p class="eyebrow">Join the org</p>
+    <h1>Join <span class="org">{{ org.name }}</span></h1>
+    {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+    <p class="lead">Sign in with GitHub, then enter the join code on the room screen.</p>
     <a class="btn" href="{{ url_for('participants.login', slug=org.slug) }}">
       <svg height="20" width="20" viewBox="0 0 16 16" aria-hidden="true">
         <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
@@ -22,8 +15,9 @@
   {% elif invited %}
     <div class="success">
       {% if invite_state == "active" %}
-        <h2>You're already a member 🎉</h2>
-        <p>
+        <p class="eyebrow">Already aboard</p>
+        <h1>You're in</h1>
+        <p class="lead">
           <strong>{{ user }}</strong>, your account is already part of
           <strong>{{ org.name }}</strong>. Nothing else to do.
         </p>
@@ -31,11 +25,12 @@
           Open the organization
         </a>
       {% else %}
-        <h2>Invitation sent ✉️</h2>
-        <p>
+        <p class="eyebrow">Invitation sent</p>
+        <h1>Check you in</h1>
+        <p class="lead">
           <strong>{{ user }}</strong>, we've invited you to
-          <strong>{{ org.name }}</strong>. Accept the invitation to finish joining
-          (you may also have an email from GitHub).
+          <strong>{{ org.name }}</strong>. Accept it to finish joining — there's
+          also an email from GitHub.
         </p>
         <a class="btn" href="{{ accept_url }}" target="_blank" rel="noopener">
           Accept invitation
@@ -46,13 +41,16 @@
       <a href="{{ url_for('participants.logout', slug=org.slug) }}">Not {{ user }}? Sign out</a>
     </div>
   {% else %}
+    <p class="eyebrow">Join the org</p>
+    <h1>Join <span class="org">{{ org.name }}</span></h1>
+    {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
     <p class="who">Signed in as <strong>{{ user }}</strong></p>
     <form method="post" action="{{ url_for('participants.join', slug=org.slug) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <label for="passcode">Join code</label>
       <input class="passcode-input" type="text" id="passcode" name="passcode"
              maxlength="12" autocomplete="off" autocapitalize="characters"
-             spellcheck="false" placeholder="XXXXXXXX" required />
+             spellcheck="false" placeholder="XXXXXXXX" required autofocus />
       <p class="hint">Enter the code shown on the {{ org.name }} screen.</p>
       <button class="btn" type="submit">Join {{ org.name }}</button>
     </form>

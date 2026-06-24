@@ -63,6 +63,7 @@
         box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.8);
       }
       .card.wide { max-width: 780px; text-align: left; }
+      .card.project { max-width: 560px; }
 
       .eyebrow {
         font-family: var(--mono);
@@ -95,6 +96,7 @@
         box-shadow: 0 0 0 1px var(--line), 0 14px 30px -18px rgba(0, 0, 0, 0.9);
       }
       .qr svg { width: 208px; height: 208px; display: block; }
+      .qr.xl svg { width: 300px; height: 300px; }
       .hint { color: var(--muted); font-size: 0.8rem; margin: 14px 0 24px; }
 
       /* ---- Buttons ----------------------------------------------------- */
@@ -209,7 +211,8 @@
       code.pass { color: var(--amber); font-weight: 700; letter-spacing: 0.12em; font-size: 0.95rem; border: 1px solid var(--line); }
 
       /* ---- Signature: split-flap passcode board ------------------------ */
-      .flapcode { display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 6px 0 18px; }
+      .flapcode { display: inline-flex; gap: 22px; flex-wrap: wrap; justify-content: center; margin: 6px 0 18px; }
+      .flapgroup { display: inline-flex; gap: 8px; }
       .flap {
         position: relative;
         min-width: 38px;
@@ -244,7 +247,7 @@
         text-align: center;
         caret-color: var(--amber);
       }
-      input.passcode-input::placeholder { letter-spacing: 0.3em; color: #3c4658; }
+      input.passcode-input::placeholder { letter-spacing: 0.3em; color: #5b6678; }
 
       /* ---- Hero (landing) ---------------------------------------------- */
       .hero h1 { font-size: clamp(2rem, 6vw, 2.9rem); line-height: 1.04; }

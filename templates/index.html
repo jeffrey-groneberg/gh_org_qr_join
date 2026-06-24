@@ -3,12 +3,14 @@
 {% block body %}
   <div class="hero">
     <p class="eyebrow">QR · Org · Join</p>
-    <h1>Scan in.<br /><span class="accent">Join the build.</span></h1>
+    <h1>Self-service<br /><span class="accent">org joining.</span></h1>
     <p class="lead">
-      Point your phone at an organization's code, sign in with GitHub, and enter
-      the passcode the organizers share. You're on the team.
+      Register your hackathon's GitHub orgs, project a QR code and join code, and
+      let participants add themselves in seconds.
     </p>
     <a class="btn" href="{{ url_for('admin.list_orgs') }}">Open organizer console</a>
-    <p class="hint">Organizers sign in with Microsoft Entra ID.</p>
+    <p class="hint">
+      Participants: scan the code on the room screen — you don't start here.
+    </p>
   </div>
 {% endblock %}

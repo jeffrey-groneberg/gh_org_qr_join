@@ -57,7 +57,7 @@
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                   <button class="btn btn-secondary btn-sm" type="submit">Check</button>
                 </form>
-                <a class="btn btn-secondary btn-sm" href="{{ url_for('admin.org_qr', slug=org.slug) }}" target="_blank" rel="noopener">QR</a>
+                <a class="btn btn-sm" href="{{ url_for('admin.org_qr', slug=org.slug) }}" target="_blank" rel="noopener">Project</a>
                 <form method="post" action="{{ url_for('admin.regenerate_passcode', slug=org.slug) }}"
                       onsubmit="return confirm('Generate a new passcode for {{ org.display_name }}? The old one stops working.');">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />

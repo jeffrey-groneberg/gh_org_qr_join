@@ -76,15 +76,13 @@ def _qr_svg(target: str) -> str:
 
 @participants_bp.get("/orgs/<slug>")
 def org_page(slug: str):
-    """Participant landing page for a single org (the QR target)."""
-    config = _config()
+    """Participant landing page for a single org (reached by scanning the QR)."""
     org = _get_org_or_404(slug)
     # Identity is org-independent; only show join state for the org in context.
     invited = session.get("invited") and session.get("invited_slug") == slug
     return render_template(
         "join.html",
         org=org,
-        qr_svg=_qr_svg(config.org_join_url(slug)),
         user=session.get("user_login"),
         invited=invited,
         invite_state=session.get("invite_state"),
