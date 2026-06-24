@@ -26,8 +26,8 @@ for them. Validate changes by building the app factory (below).
   GITHUB_CLIENT_ID=x GITHUB_CLIENT_SECRET=x GITHUB_INVITE_TOKEN=x ADMIN_DEV_BYPASS=1 \
   python -c "import app; print([str(r) for r in app.app.url_map.iter_rules()])"
   ```
-- The venv (`.venv`) targets Python 3.9; type hints use `from __future__ import
-  annotations` so 3.10+ syntax (`str | None`) is fine.
+- The venv (`.venv`) targets Python 3.12 (matching the Azure runtime); type
+  hints use `from __future__ import annotations`.
 - Container: `Dockerfile` runs `gunicorn --bind 0.0.0.0:${PORT} app:app` as a
   non-root user — **local dev / portability only**. The Azure deploy uses App
   Service's built-in Python runtime (Oryx), not this image. All config is via
@@ -97,6 +97,13 @@ This separation is the core security design — keep it intact:
   (`secrets.token_urlsafe`) is compared with `secrets.compare_digest` and the
   request is `abort(400)`ed on mismatch. OAuth `state` is validated the same way.
   Do not add a POST without this check.
+- **Logging & telemetry:** use a module-level `logger = logging.getLogger(__name__)`;
+  log actions/outcomes at INFO, failures at WARNING. Never log secrets (tokens,
+  client secrets) and keep PII (GitHub logins) to DEBUG — INFO logs use org
+  `slug` + status only. `telemetry.configure_telemetry()` enables Azure Monitor
+  (Application Insights) only when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set;
+  it's a no-op locally. `configure_azure_monitor` auto-instruments Flask,
+  `requests`, and the `logging` module, so plain `logger` calls reach App Insights.
 - **No persisted user data:** the participant flow keeps only what it needs in
   the signed session cookie (`user_login`, invite state) and discards the GitHub
   user token immediately after reading the login.

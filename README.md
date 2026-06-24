@@ -40,8 +40,10 @@ default join role.
 
 ## Run locally
 
+Requires Python 3.10+ (the project targets 3.12, matching Azure).
+
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env            # fill in values
 export ADMIN_DEV_BYPASS=1       # treat local user as admin (no Easy Auth locally)
@@ -51,6 +53,9 @@ python app.py                   # http://127.0.0.1:8000
 
 You'll need a GitHub OAuth App (callback `http://127.0.0.1:8000/callback`) and a
 classic PAT with `admin:org` for a test org you own.
+
+Logs go to stdout at `LOG_LEVEL` (default INFO). Application Insights stays off
+locally unless `APPLICATIONINSIGHTS_CONNECTION_STRING` is set.
 
 ## Deploy to Azure (step by step)
 
@@ -147,7 +152,20 @@ app role: Entra admin center → **Enterprise applications** → `<app_name>-adm
 - `models.py` — `Org` model
 - `auth.py` — Easy Auth admin gate (`admin_required`)
 - `github.py` — GitHub API helpers (`check_org_status`: ok/no_access/missing)
+- `telemetry.py` — optional Azure Monitor / Application Insights wiring
 - `admin.py` — org-list CRUD + QR page + org check
 - `participants.py` — GitHub OAuth identity + join
 - `templates/` — server-rendered Jinja (GitHub dark theme)
 - `infra/` — Terraform IaC for Azure
+
+## Observability
+
+Terraform provisions a **Log Analytics workspace** and a workspace-based
+**Application Insights** component, and injects its connection string as the
+`APPLICATIONINSIGHTS_CONNECTION_STRING` app setting. On startup the app calls
+`telemetry.configure_telemetry()`, which uses Azure Monitor OpenTelemetry to
+auto-instrument Flask requests, outbound GitHub calls, and the Python `logging`
+module — so request traces, dependencies, and the app's own logs all flow to
+Application Insights with trace correlation. View them under the
+`<app_name>-ai` resource (Logs / Transaction search / Live metrics). Telemetry
+is a no-op when the connection string is unset (e.g. local dev).

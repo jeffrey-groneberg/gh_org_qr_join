@@ -43,6 +43,12 @@ variable "python_version" {
   default     = "3.12"
 }
 
+variable "log_retention_in_days" {
+  description = "Log Analytics workspace retention for Application Insights data."
+  type        = number
+  default     = 30
+}
+
 variable "app_base_url" {
   description = <<-EOT
     Public HTTPS base URL of the app (no trailing slash). Leave empty to derive

@@ -15,6 +15,7 @@ WSGI entrypoint: ``gunicorn app:app``  (or ``python app.py`` for local dev).
 
 from __future__ import annotations
 
+import logging
 import os
 
 from flask import Flask, redirect, url_for
@@ -24,10 +25,30 @@ from auth import auth_bp
 from config import Config
 from extensions import db
 from participants import participants_bp
+from telemetry import configure_telemetry
+
+logger = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+    """Send logs to stdout (captured by App Service) at the configured level."""
+    level_name = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    # Quiet noisy access logs from the dev server unless explicitly debugging.
+    logging.getLogger("werkzeug").setLevel(max(level, logging.WARNING))
 
 
 def create_app() -> Flask:
     config = Config()
+
+    # Logging first, then telemetry (which attaches its handler to the root
+    # logger and must run before the Flask app is created to instrument it).
+    _configure_logging()
+    telemetry_on = configure_telemetry()
 
     app = Flask(__name__)
     app.config["APP_CONFIG"] = config
@@ -49,6 +70,12 @@ def create_app() -> Flask:
     config.ensure_sqlite_dir()
     with app.app_context():
         db.create_all()
+
+    logger.info(
+        "QR Org Join started (telemetry=%s, db=%s)",
+        "on" if telemetry_on else "off",
+        config.database_url.split("://", 1)[0],
+    )
 
     @app.get("/")
     def index():

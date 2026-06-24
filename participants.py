@@ -27,11 +27,15 @@ from flask import (
     url_for,
 )
 
+import logging
+
 import segno
 
 from models import Org
 
 participants_bp = Blueprint("participants", __name__)
+
+logger = logging.getLogger(__name__)
 
 GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
@@ -112,6 +116,7 @@ def callback():
     back = url_for("participants.org_page", slug=slug) if slug else url_for("admin.list_orgs")
 
     if request.args.get("error"):
+        logger.info("GitHub sign-in cancelled by user (org=%s)", slug)
         session["flash_error"] = "GitHub sign-in was cancelled. Please try again to join."
         return redirect(back)
 
@@ -120,6 +125,7 @@ def callback():
     if not expected_state or not returned_state or not secrets.compare_digest(
         expected_state, returned_state
     ):
+        logger.warning("OAuth state validation failed (org=%s)", slug)
         session["flash_error"] = "Sign-in could not be verified. Please try again."
         return redirect(back)
 
@@ -143,10 +149,12 @@ def callback():
         token_resp.raise_for_status()
         user_token = token_resp.json().get("access_token")
     except requests.RequestException:
+        logger.warning("GitHub token exchange failed (org=%s)", slug, exc_info=True)
         session["flash_error"] = "Could not reach GitHub to sign you in. Please retry."
         return redirect(back)
 
     if not user_token:
+        logger.info("GitHub returned no access token (org=%s)", slug)
         session["flash_error"] = "GitHub did not grant access. Please try again."
         return redirect(back)
 
@@ -163,11 +171,13 @@ def callback():
         user_resp.raise_for_status()
         user_data = user_resp.json()
     except requests.RequestException:
+        logger.warning("Failed to read GitHub identity (org=%s)", slug, exc_info=True)
         session["flash_error"] = "Could not read your GitHub identity. Please retry."
         return redirect(back)
 
     login_name = user_data.get("login")
     if not login_name:
+        logger.warning("GitHub identity response missing login (org=%s)", slug)
         session["flash_error"] = "GitHub identity was incomplete. Please retry."
         return redirect(back)
 
@@ -175,6 +185,8 @@ def callback():
     session.pop("invited", None)
     session.pop("invite_state", None)
     session.pop("invited_slug", None)
+    logger.info("Participant signed in to org context (org=%s)", slug)
+    logger.debug("Signed-in GitHub user '%s' (org=%s)", login_name, slug)
     return redirect(back)
 
 
@@ -204,24 +216,30 @@ def join(slug: str):
             timeout=HTTP_TIMEOUT,
         )
     except requests.RequestException:
+        logger.warning("Invite request to GitHub failed (org=%s)", slug, exc_info=True)
         session["flash_error"] = "Could not reach GitHub to send your invite. Please retry."
         return redirect(url_for("participants.org_page", slug=slug))
 
     if resp.status_code == 200:
+        state = resp.json().get("state", "pending")
         session["invited"] = True
         session["invited_slug"] = slug
-        session["invite_state"] = resp.json().get("state", "pending")
+        session["invite_state"] = state
+        logger.info("Invitation created (org=%s, state=%s)", slug, state)
     elif resp.status_code == 403:
+        logger.warning("Invite forbidden by GitHub (org=%s, status=403)", slug)
         session["flash_error"] = (
             "The invite service is not authorized for this organization. "
             "Please notify the organizer."
         )
     elif resp.status_code == 422:
+        logger.warning("Invite unprocessable (org=%s, status=422)", slug)
         session["flash_error"] = (
             "GitHub could not process the invite right now (it may be rate "
             "limited). Please try again in a little while."
         )
     else:
+        logger.warning("Invite failed (org=%s, status=%s)", slug, resp.status_code)
         session["flash_error"] = "Sending your invite failed. Please try again."
 
     return redirect(url_for("participants.org_page", slug=slug))

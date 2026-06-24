@@ -23,6 +23,8 @@ import binascii
 import json
 from functools import wraps
 
+import logging
+
 from flask import (
     Blueprint,
     current_app,
@@ -32,6 +34,8 @@ from flask import (
 )
 
 auth_bp = Blueprint("auth", __name__)
+
+logger = logging.getLogger(__name__)
 
 # Claim types under which Entra app roles arrive in the Easy Auth principal.
 _ROLE_CLAIM_TYPES = {
@@ -105,8 +109,14 @@ def admin_required(view):
     def wrapped(*args, **kwargs):
         admin = current_admin()
         if admin is None:
+            logger.info("Unauthenticated access to %s; redirecting to sign-in", request.path)
             return _login_redirect()
         if not is_admin(admin):
+            logger.warning(
+                "Admin access denied to %s for '%s' (missing role)",
+                request.path,
+                admin.get("name"),
+            )
             return render_template("forbidden.html", who=admin.get("name")), 403
         return view(*args, **kwargs)
 

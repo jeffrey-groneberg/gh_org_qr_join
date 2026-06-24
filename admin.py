@@ -7,6 +7,7 @@ default role) and renders each org's QR code for projecting. Member management
 
 from __future__ import annotations
 
+import logging
 import secrets
 
 import segno
@@ -28,6 +29,8 @@ from github import check_org_status
 from models import VALID_ROLES, Org
 
 admin_bp = Blueprint("admin", __name__)
+
+logger = logging.getLogger(__name__)
 
 
 def _config():
@@ -99,6 +102,7 @@ def create_org():
             )
         else:
             session["admin_error"] = f"Cannot add '{slug}': {result.detail}"
+        logger.info("Rejected add of org '%s' (status=%s)", slug, result.status)
         return redirect(url_for("admin.list_orgs"))
 
     org = Org(slug=slug, display_name=display_name or slug, member_role=role)
@@ -111,6 +115,7 @@ def create_org():
         return redirect(url_for("admin.list_orgs"))
 
     session["admin_notice"] = f"Added '{org.name}'."
+    logger.info("Org added (slug=%s, role=%s)", org.slug, org.member_role)
     return redirect(url_for("admin.list_orgs"))
 
 
@@ -126,6 +131,7 @@ def update_org(org_id: int):
     org.member_role = _clean_role(request.form.get("member_role", ""))
     db.session.commit()
     session["admin_notice"] = f"Updated '{org.name}'."
+    logger.info("Org updated (slug=%s, role=%s)", org.slug, org.member_role)
     return redirect(url_for("admin.list_orgs"))
 
 
@@ -138,9 +144,11 @@ def delete_org(org_id: int):
     if org is None:
         abort(404)
     name = org.name
+    slug = org.slug
     db.session.delete(org)
     db.session.commit()
     session["admin_notice"] = f"Removed '{name}'."
+    logger.info("Org removed (slug=%s)", slug)
     return redirect(url_for("admin.list_orgs"))
 
 
@@ -160,6 +168,7 @@ def check_org(org_id: int):
         "status": result.status,
         "detail": result.detail,
     }
+    logger.info("Org checked (slug=%s, status=%s)", org.slug, result.status)
     return redirect(url_for("admin.list_orgs"))
 
 

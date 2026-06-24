@@ -31,6 +31,23 @@ resource "azurerm_service_plan" "this" {
   sku_name            = var.sku_name
 }
 
+# Workspace-based Application Insights (the modern, required topology).
+resource "azurerm_log_analytics_workspace" "this" {
+  name                = "${local.app_name}-logs"
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
+  sku                 = "PerGB2018"
+  retention_in_days   = var.log_retention_in_days
+}
+
+resource "azurerm_application_insights" "this" {
+  name                = "${local.app_name}-ai"
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
+  workspace_id        = azurerm_log_analytics_workspace.this.id
+  application_type    = "web"
+}
+
 resource "azurerm_linux_web_app" "this" {
   name                = local.app_name
   resource_group_name = azurerm_resource_group.this.name
@@ -64,6 +81,9 @@ resource "azurerm_linux_web_app" "this" {
 
     ENTRA_ADMIN_ROLE = var.admin_app_role_value
     MEMBER_ROLE      = var.member_role
+
+    # Application Insights (Azure Monitor OpenTelemetry reads this automatically).
+    APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.this.connection_string
 
     # Consumed by Easy Auth's active_directory_v2 provider below.
     MICROSOFT_PROVIDER_AUTHENTICATION_SECRET = azuread_application_password.admin.value
