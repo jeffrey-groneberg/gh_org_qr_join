@@ -120,6 +120,10 @@ This separation is the core security design — keep it intact:
   (Application Insights) only when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set;
   it's a no-op locally. `configure_azure_monitor` auto-instruments Flask,
   `requests`, and the `logging` module, so plain `logger` calls reach App Insights.
+  Flask's instrumentation patches the `flask.Flask` attribute, so `create_app`
+  builds the app via `flask.Flask(__name__)` (resolved at call time, after
+  `build_app` calls `configure_telemetry`) — not `from flask import Flask`, which
+  would capture the un-instrumented class and drop incoming "requests" telemetry.
 - **No persisted user data:** the participant flow keeps only what it needs in
   the signed session cookie (`user_login`, invite state) and discards the GitHub
   user token immediately after reading the login.

@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import logging
 
-from flask import Flask, render_template
+import flask
+from flask import render_template
 
 from admin import admin_bp
 from auth import auth_bp
@@ -31,9 +32,16 @@ from telemetry import configure_telemetry
 logger = logging.getLogger(__name__)
 
 
-def create_app(config: Config, org_store: OrgStore) -> Flask:
-    """Build the Flask app from injected dependencies."""
-    app = Flask(__name__)
+def create_app(config: Config, org_store: OrgStore) -> flask.Flask:
+    """Build the Flask app from injected dependencies.
+
+    Note: the app is created via ``flask.Flask`` (resolved at call time) rather
+    than a module-level ``from flask import Flask``. Azure Monitor's Flask
+    instrumentation patches the ``flask.Flask`` attribute, so constructing the
+    app this way — after ``configure_telemetry`` runs in ``build_app`` — ensures
+    incoming requests are captured as Application Insights "requests".
+    """
+    app = flask.Flask(__name__)
     app.config["APP_CONFIG"] = config
     app.config["ORG_STORE"] = org_store
     app.config["SECRET_KEY"] = config.secret_key
@@ -71,7 +79,7 @@ def _configure_logging(level_name: str) -> None:
     logging.getLogger("werkzeug").setLevel(max(level, logging.WARNING))
 
 
-def build_app() -> Flask:
+def build_app() -> flask.Flask:
     """Composition root: construct real dependencies and wire the app."""
     config = Config()
 
