@@ -68,8 +68,25 @@ def _ensure_csrf_token() -> str:
     return token
 
 
-def _qr_svg(target: str) -> str:
-    return segno.make(target, error="m").svg_inline(scale=6)
+def _is_active_member(token: str, slug: str, login: str) -> bool:
+    """True if ``login`` is already an active member of the org.
+
+    Used to turn a 403 from the invite call (e.g. an owner trying to "join" their
+    own org) into a friendly "already a member" result instead of an error.
+    """
+    try:
+        resp = _http.get(
+            f"{GITHUB_API_URL}/orgs/{slug}/memberships/{login}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            },
+            timeout=HTTP_TIMEOUT,
+        )
+    except requests.RequestException:
+        return False
+    return resp.status_code == 200 and resp.json().get("state") == "active"
 
 
 @participants_bp.get("/orgs/<slug>")
@@ -239,11 +256,20 @@ def join(slug: str):
         session["invite_state"] = state
         logger.info("Invitation created (org=%s, state=%s)", slug, state)
     elif resp.status_code == 403:
-        logger.warning("Invite forbidden by GitHub (org=%s, status=403)", slug)
-        session["flash_error"] = (
-            "The invite service is not authorized for this organization. "
-            "Please notify the organizer."
-        )
+        # A 403 also occurs when the signed-in user is already a member/owner
+        # (GitHub won't let them set their own membership). Detect that and show
+        # a friendly "already in" message instead of an authorization error.
+        if _is_active_member(config.invite_token, slug, login_name):
+            session["invited"] = True
+            session["invited_slug"] = slug
+            session["invite_state"] = "active"
+            logger.info("Join no-op: already an active member (org=%s)", slug)
+        else:
+            logger.warning("Invite forbidden by GitHub (org=%s, status=403)", slug)
+            session["flash_error"] = (
+                "The invite service is not authorized for this organization. "
+                "Please notify the organizer."
+            )
     elif resp.status_code == 422:
         logger.warning("Invite unprocessable (org=%s, status=422)", slug)
         session["flash_error"] = (
