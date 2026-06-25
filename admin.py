@@ -9,6 +9,7 @@ provided by the injected ``OrgStore`` on ``current_app.config["ORG_STORE"]``.
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 
 import segno
@@ -66,6 +67,19 @@ def _check_admin_csrf() -> None:
 def _clean_role(raw: str) -> str:
     role = (raw or "").strip().lower()
     return role if role in VALID_ROLES else _config().default_member_role
+
+
+def _qr_svg(target: str, scale: int = 10) -> str:
+    """Render a QR as an inline SVG with a viewBox so it scales and stays
+    centered regardless of the QR's intrinsic pixel size (which varies with the
+    length of the encoded URL)."""
+    raw = segno.make(target, error="m").svg_inline(scale=scale)
+
+    def _add_viewbox(m: "re.Match[str]") -> str:
+        w, h = m.group(1), m.group(2)
+        return f'<svg viewBox="0 0 {w} {h}" preserveAspectRatio="xMidYMid meet" class="segno">'
+
+    return re.sub(r'<svg width="(\d+)" height="(\d+)" class="segno">', _add_viewbox, raw, count=1)
 
 
 @admin_bp.get("/admin")
@@ -200,5 +214,5 @@ def org_qr(slug: str):
     config = _config()
     org = _get_org_or_404(slug)
     target = config.org_join_url(org.slug)
-    qr_svg = segno.make(target, error="m").svg_inline(scale=10)
+    qr_svg = _qr_svg(target, scale=10)
     return render_template("admin_qr.html", org=org, qr_svg=qr_svg, target=target)

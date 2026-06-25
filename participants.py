@@ -29,8 +29,6 @@ from flask import (
 
 import logging
 
-import segno
-
 from models import Org
 
 participants_bp = Blueprint("participants", __name__)
