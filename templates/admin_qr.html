@@ -9,10 +9,52 @@
   <p class="hint">{{ target }}</p>
   {% if org.passcode %}
     <p class="eyebrow">Enter this code</p>
-    <div class="flapcode lg" aria-label="Join code {{ org.passcode }}">
-      <span class="flapgroup">{% for ch in org.passcode[:4] %}<span class="flap">{{ ch }}</span>{% endfor %}</span>
-      <span class="flapgroup">{% for ch in org.passcode[4:] %}<span class="flap">{{ ch }}</span>{% endfor %}</span>
+    <div class="flapcode lg" id="joincode" aria-label="Join code {{ org.passcode }}">
+      <span class="flapgroup">{% for ch in org.passcode[:4] %}<span class="flap" data-final="{{ ch }}">{{ ch }}</span>{% endfor %}</span>
+      <span class="flapgroup">{% for ch in org.passcode[4:] %}<span class="flap" data-final="{{ ch }}">{{ ch }}</span>{% endfor %}</span>
     </div>
+    <script>
+      // Split-flap reveal: scramble each tile, locking them one by one over ~5s.
+      // Progressive enhancement — the final code is server-rendered, so it stays
+      // visible if JS is off; respects prefers-reduced-motion.
+      (function () {
+        var board = document.getElementById("joincode");
+        if (!board) return;
+        var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        var tiles = Array.prototype.slice.call(board.querySelectorAll(".flap"));
+        if (reduce || !tiles.length) return;
+
+        var ALPHA = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+        var TOTAL = 5000, SCRAMBLE = 520, TICK = 55;
+        var step = tiles.length > 1 ? (TOTAL - SCRAMBLE) / (tiles.length - 1) : 0;
+
+        function flip(el) {
+          if (el.animate) {
+            el.animate(
+              [{ transform: "rotateX(0deg)" }, { transform: "rotateX(-55deg)" }, { transform: "rotateX(0deg)" }],
+              { duration: TICK, easing: "ease-in-out" }
+            );
+          }
+        }
+
+        tiles.forEach(function (t) { t.textContent = ""; });
+        tiles.forEach(function (t, i) {
+          setTimeout(function () {
+            var elapsed = 0;
+            var iv = setInterval(function () {
+              elapsed += TICK;
+              if (elapsed >= SCRAMBLE) {
+                clearInterval(iv);
+                t.textContent = t.getAttribute("data-final");
+              } else {
+                t.textContent = ALPHA[Math.floor(Math.random() * ALPHA.length)];
+              }
+              flip(t);
+            }, TICK);
+          }, Math.round(i * step));
+        });
+      })();
+    </script>
   {% endif %}
   <div class="footer-link">
     <a href="{{ url_for('admin.list_orgs') }}">&larr; Back to organizations</a>
