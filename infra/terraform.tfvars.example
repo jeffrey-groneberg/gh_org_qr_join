@@ -20,6 +20,5 @@ github_invite_token  = "ghp_replace_me"
 
 # Optional overrides:
 # admin_app_role_value = "admin"
-# member_role          = "member"
 # sku_name             = "B1"
 # app_base_url         = "https://<actual-host>"

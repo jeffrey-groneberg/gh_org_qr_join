@@ -53,12 +53,67 @@
     <form method="post" action="{{ url_for('participants.join', slug=org.slug) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <label for="passcode">Join code</label>
-      <input class="passcode-input" type="text" id="passcode" name="passcode"
-             maxlength="12" autocomplete="off" autocapitalize="characters"
-             spellcheck="false" placeholder="XXXXXXXX" required autofocus />
+      <div class="codeentry" id="codeentry">
+        <input class="code-real" type="text" id="passcode" name="passcode"
+               maxlength="8" autocomplete="off" autocapitalize="characters"
+               spellcheck="false" inputmode="text" required autofocus
+               aria-label="Join code" />
+        <div class="codecells" aria-hidden="true">
+          <span class="flapgroup">
+            <span class="cell"><span class="g"></span></span>
+            <span class="cell"><span class="g"></span></span>
+            <span class="cell"><span class="g"></span></span>
+            <span class="cell"><span class="g"></span></span>
+          </span>
+          <span class="flapgroup">
+            <span class="cell"><span class="g"></span></span>
+            <span class="cell"><span class="g"></span></span>
+            <span class="cell"><span class="g"></span></span>
+            <span class="cell"><span class="g"></span></span>
+          </span>
+        </div>
+      </div>
       <p class="hint">Enter the code shown on the {{ org.name }} screen.</p>
       <button class="btn" type="submit">Join {{ org.name }}</button>
     </form>
+    <script>
+      // Segmented code entry: one real input captures typing/paste seamlessly,
+      // its value is mirrored into the two rows of cells, and the next empty
+      // cell is highlighted. The form still submits the single "passcode" field.
+      (function () {
+        var wrap = document.getElementById("codeentry");
+        if (!wrap) return;
+        var input = wrap.querySelector(".code-real");
+        var glyphs = Array.prototype.slice.call(wrap.querySelectorAll(".cell .g"));
+        var cells = Array.prototype.slice.call(wrap.querySelectorAll(".cell"));
+        var MAX = cells.length;
+
+        function sanitize(v) {
+          return (v || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, MAX);
+        }
+        function render() {
+          var v = input.value;
+          var focused = document.activeElement === input;
+          for (var i = 0; i < cells.length; i++) {
+            glyphs[i].textContent = v[i] || "";
+            var active = focused && (i === v.length || (v.length === MAX && i === MAX - 1));
+            cells[i].classList.toggle("active", active);
+          }
+        }
+        input.addEventListener("input", function () {
+          var s = sanitize(input.value);
+          if (s !== input.value) input.value = s;
+          render();
+        });
+        input.addEventListener("focus", render);
+        input.addEventListener("blur", render);
+        wrap.addEventListener("mousedown", function (e) {
+          if (e.target !== input) { e.preventDefault(); input.focus(); }
+        });
+        input.value = sanitize(input.value);
+        render();
+      })();
+    </script>
     <div class="footer-link">
       <a href="{{ url_for('participants.logout', slug=org.slug) }}">Not {{ user }}? Sign out</a>
     </div>

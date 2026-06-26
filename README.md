@@ -36,7 +36,7 @@ exists (missing) — in which case you're prompted to remove it from the list.
 | GitHub classic PAT (`admin:org`) | Creates every org invitation |
 
 No per-org secret is stored; each org is a small document (slug, display name,
-default join role) in **Cosmos DB for NoSQL** (serverless), accessed
+join passcode) in **Cosmos DB for NoSQL** (serverless), accessed
 passwordlessly via **managed identity** — the app holds no database keys.
 
 ## Run locally
@@ -153,7 +153,7 @@ app role: Entra admin center → **Enterprise applications** → `<app_name>-adm
 - `app.py` — pure app factory `create_app(config, store)` + composition root
 - `config.py` — env-driven configuration (the only place that reads `os.environ`)
 - `models.py` — `Org` dataclass (Cosmos document)
-- `repository.py` — `OrgStore` interface + `CosmosOrgStore` implementation
+- `org_store.py` — `OrgStore` interface + `CosmosOrgStore` implementation
 - `auth.py` — Easy Auth admin gate (`admin_required`)
 - `github.py` — GitHub API helpers (`check_org_status`: ok/no_access/missing)
 - `telemetry.py` — Azure Monitor / Application Insights wiring (config-driven)

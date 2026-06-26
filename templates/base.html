@@ -145,6 +145,14 @@
       }
       .btn-danger:hover { background: var(--danger-bg); }
       .btn-sm { width: auto; padding: 6px 14px; font-size: 0.85rem; }
+      .btn-icon {
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        flex: 0 0 auto;
+        border-radius: 6px;
+      }
+      .btn-icon svg { display: block; }
 
       form { margin: 0; }
       .who { color: var(--muted); font-size: 0.92rem; margin-bottom: 18px; }
@@ -199,7 +207,8 @@
         letter-spacing: 0.03em;
         text-transform: uppercase;
       }
-      td .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      td .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .passcell { display: inline-flex; align-items: center; gap: 8px; }
 
       label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--ink-2); margin: 14px 0 6px; }
       input[type="text"], select {
@@ -240,29 +249,140 @@
         border-radius: 8px;
         box-shadow: var(--shadow-8);
       }
+      .flapcode.lg { perspective: 800px; }
       .flapcode.lg .flap {
-        min-width: 66px;
-        padding: 18px 8px;
-        font-size: 3rem;
+        position: relative;
+        width: 66px;
+        height: 92px;
+        padding: 0;
+        overflow: hidden;
         border-radius: 12px;
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow-16);
+        /* Fallback (JS off / reduced motion): the server-rendered char shows. */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 3rem;
         background: var(--copilot);
         -webkit-background-clip: text;
         background-clip: text;
         color: transparent;
-        border: 1px solid var(--line);
-        box-shadow: var(--shadow-16);
       }
-
-      input.passcode-input {
-        text-transform: uppercase;
-        letter-spacing: 0.4em;
+      /* ---- Split-flap (Solari) leaves — only the top half folds down ---- */
+      /* The tile is split at the seam. The hinged top leaf folds down from the
+         centre (rotateX 0 -> -90), revealing the new glyph's top half behind it;
+         then the incoming bottom leaf drops in (rotateX 90 -> 0). Built by JS. */
+      .flapcode.lg .flap.sf {
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+        overflow: visible;
+        perspective: 620px;
+      }
+      .sf-half {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 50%;
+        overflow: hidden;
+        backface-visibility: hidden;
+        -webkit-backface-visibility: hidden;
+      }
+      .sf-half .ch {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 92px;            /* full tile height so the glyph spans both halves */
+        line-height: 92px;
+        text-align: center;
         font-family: var(--mono);
         font-weight: 700;
-        font-size: 1.2rem;
-        text-align: center;
-        color: var(--accent);
+        font-size: 3rem;
+        background: var(--copilot);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
       }
-      input.passcode-input::placeholder { letter-spacing: 0.28em; color: #c8c6c4; }
+      .sf-top {
+        top: 0;
+        border: 1px solid var(--line);
+        border-bottom: 0;
+        border-radius: 12px 12px 0 0;
+        background: #ffffff;
+        transform-origin: center bottom;
+      }
+      .sf-top .ch { top: 0; }
+      .sf-bottom {
+        bottom: 0;
+        border: 1px solid var(--line);
+        border-top: 0;
+        border-radius: 0 0 12px 12px;
+        background: #ffffff;       /* uniform bright lower half (no two-tone) */
+        transform-origin: center top;
+      }
+      .sf-bottom .ch { bottom: 0; }
+      /* No static seam at rest: tiles read as one clean white card. The split
+         only becomes visible while the leaf is folding (via the 3D perspective),
+         and there is no shadow, so the bottom half never darkens. */
+      .sf-flip { z-index: 3; }
+
+      /* ---- Segmented join-code entry (mirrors the projector flap tiles) --- */
+      /* A single hidden input captures typing/paste seamlessly; the value is
+         mirrored into two rows of four cells styled like the projector code. */
+      .codeentry { position: relative; display: inline-block; margin: 4px 0 6px; }
+      .codeentry .code-real {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: transparent;
+        caret-color: transparent;
+        font-size: 16px;            /* >=16px avoids iOS zoom-on-focus */
+        text-align: center;
+        cursor: text;
+        outline: none;
+        z-index: 2;
+      }
+      .codeentry .code-real::selection { background: transparent; }
+      .codecells {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        align-items: center;
+      }
+      .codecells .flapgroup { display: inline-flex; gap: 10px; }
+      .cell {
+        width: 52px;
+        height: 68px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        box-shadow: var(--shadow-8);
+        transition: border-color 0.12s ease, box-shadow 0.12s ease;
+      }
+      .cell .g {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 2.1rem;
+        line-height: 1;
+        /* same Copilot-gradient glyphs as the projector tiles */
+        background: var(--copilot);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .cell.active {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
 
       /* ---- Hero (landing) ---------------------------------------------- */
       .hero .spark {

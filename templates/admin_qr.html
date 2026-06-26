@@ -14,9 +14,11 @@
       <span class="flapgroup">{% for ch in org.passcode[4:] %}<span class="flap" data-final="{{ ch }}">{{ ch }}</span>{% endfor %}</span>
     </div>
     <script>
-      // Split-flap reveal: scramble each tile, locking them one by one over ~5s.
-      // Progressive enhancement — the final code is server-rendered, so it stays
-      // visible if JS is off; respects prefers-reduced-motion.
+      // Split-flap (Solari) reveal: only the hinged TOP leaf folds down from the
+      // centre seam, uncovering the new glyph's top half; then the new bottom
+      // leaf drops in. Tiles scramble and lock one by one over ~5s. Progressive
+      // enhancement: the final code is server-rendered, so it stays visible with
+      // JS off and the animation is skipped under prefers-reduced-motion.
       (function () {
         var board = document.getElementById("joincode");
         if (!board) return;
@@ -25,33 +27,87 @@
         if (reduce || !tiles.length) return;
 
         var ALPHA = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-        var TOTAL = 5000, SCRAMBLE = 520, TICK = 55;
-        var step = tiles.length > 1 ? (TOTAL - SCRAMBLE) / (tiles.length - 1) : 0;
+        var FLIP = 280, MIN_STEPS = 3, MAX_STEPS = 6, TOTAL = 5000;
+        var maxStart = Math.max(0, TOTAL - MAX_STEPS * FLIP);
 
-        function flip(el) {
-          if (el.animate) {
-            el.animate(
-              [{ transform: "rotateX(0deg)" }, { transform: "rotateX(-55deg)" }, { transform: "rotateX(0deg)" }],
-              { duration: TICK, easing: "ease-in-out" }
-            );
+        function Flapper(flap) {
+          // Start on a random glyph (not the final), so the board reads as
+          // scrambled before the flips resolve it to the real code.
+          var start = ALPHA[Math.floor(Math.random() * ALPHA.length)];
+          flap.textContent = "";
+          flap.classList.add("sf");
+          function half(cls, ch) {
+            var h = document.createElement("div");
+            h.className = "sf-half " + cls;
+            var s = document.createElement("span");
+            s.className = "ch";
+            s.textContent = ch;
+            h.appendChild(s);
+            flap.appendChild(h);
+            return { el: h, ch: s };
           }
+          // paint order: static halves underneath, hinged leaves on top
+          var staticBottom = half("sf-bottom", start);
+          var staticTop = half("sf-top", start);
+          var leafBottom = half("sf-bottom sf-flip", start);
+          var leafTop = half("sf-top sf-flip", start);
+          leafTop.el.style.transform = "rotateX(0deg)";
+          leafBottom.el.style.transform = "rotateX(90deg)";
+          var cur = start;
+
+          function flip(next) {
+            return new Promise(function (resolve) {
+              staticTop.ch.textContent = next;    // hidden behind leafTop; shown as it falls
+              leafTop.ch.textContent = cur;        // the falling top leaf shows the OLD glyph
+              leafBottom.ch.textContent = next;    // the incoming bottom leaf shows the NEW glyph
+              staticBottom.ch.textContent = cur;   // bottom stays OLD until the leaf lands
+              leafTop.el.style.transform = "rotateX(0deg)";
+              leafBottom.el.style.transform = "rotateX(90deg)";
+
+              // 1) top leaf folds down from the seam: 0 -> -90 (origin: bottom edge)
+              var a1 = leafTop.el.animate(
+                [{ transform: "rotateX(0deg)" }, { transform: "rotateX(-90deg)" }],
+                { duration: FLIP * 0.55, easing: "cubic-bezier(.36,0,.85,.4)", fill: "forwards" }
+              );
+              a1.onfinish = function () {
+                // 2) new bottom leaf drops in: 90 -> 0 (origin: top edge)
+                var a2 = leafBottom.el.animate(
+                  [{ transform: "rotateX(90deg)" }, { transform: "rotateX(0deg)" }],
+                  { duration: FLIP * 0.45, easing: "cubic-bezier(.15,.6,.3,1)", fill: "forwards" }
+                );
+                a2.onfinish = function () {
+                  staticBottom.ch.textContent = next;   // commit the new bottom
+                  cur = next;
+                  leafTop.ch.textContent = next;        // reset leaves to rest on the new glyph
+                  leafTop.el.style.transform = "rotateX(0deg)";
+                  leafBottom.el.style.transform = "rotateX(90deg)";
+                  resolve();
+                };
+              };
+            });
+          }
+          return { flip: flip };
         }
 
-        tiles.forEach(function (t) { t.textContent = ""; });
-        tiles.forEach(function (t, i) {
+        tiles.forEach(function (flap, i) {
+          var fin = flap.getAttribute("data-final");
+          var sf = Flapper(flap);
+          // Random start + random number of flaps so tiles lock in a scattered,
+          // unpredictable order (not left-to-right) but all settle within ~TOTAL.
+          var steps = MIN_STEPS + Math.floor(Math.random() * (MAX_STEPS - MIN_STEPS + 1));
+          var delay = Math.random() * maxStart;
           setTimeout(function () {
-            var elapsed = 0;
-            var iv = setInterval(function () {
-              elapsed += TICK;
-              if (elapsed >= SCRAMBLE) {
-                clearInterval(iv);
-                t.textContent = t.getAttribute("data-final");
-              } else {
-                t.textContent = ALPHA[Math.floor(Math.random() * ALPHA.length)];
-              }
-              flip(t);
-            }, TICK);
-          }, Math.round(i * step));
+            var seq = [];
+            for (var k = 0; k < steps - 1; k++) {
+              seq.push(ALPHA[Math.floor(Math.random() * ALPHA.length)]);
+            }
+            seq.push(fin);
+            flap.classList.add("is-flipping");
+            (function run(j) {
+              if (j >= seq.length) { flap.classList.remove("is-flipping"); return; }
+              sf.flip(seq[j]).then(function () { run(j + 1); });
+            })(0);
+          }, Math.round(delay));
         });
       })();
     </script>

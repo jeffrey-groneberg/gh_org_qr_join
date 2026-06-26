@@ -58,7 +58,7 @@ from the **composition root** — reading any one file is not enough:
 - `models.py` — `Org` is a plain dataclass (a Cosmos document); the `slug` is its
   id/partition key. Slug handling lives in `Org.normalize_slug` /
   `Org.is_valid_slug`.
-- `repository.py` — `OrgStore` is the persistence **interface** (Protocol) the app
+- `org_store.py` — `OrgStore` is the persistence **interface** (Protocol) the app
   depends on; `CosmosOrgStore` is the Cosmos DB for NoSQL implementation
   (passwordless via `DefaultAzureCredential`, connects lazily on first use). Get
   it in a request via `current_app.config["ORG_STORE"]`.

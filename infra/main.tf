@@ -159,7 +159,6 @@ resource "azurerm_linux_web_app" "this" {
     GITHUB_INVITE_TOKEN  = var.github_invite_token
 
     ENTRA_ADMIN_ROLE = var.admin_app_role_value
-    MEMBER_ROLE      = var.member_role
 
     # Application Insights (Azure Monitor OpenTelemetry reads this automatically).
     APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.this.connection_string

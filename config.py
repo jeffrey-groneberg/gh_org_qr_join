@@ -85,14 +85,6 @@ class Config:
             "APPLICATIONINSIGHTS_CONNECTION_STRING", ""
         ).strip()
 
-        # --- Defaults --------------------------------------------------------
-        # Default role applied to a new org if the admin doesn't pick one.
-        self.default_member_role = (
-            os.environ.get("MEMBER_ROLE", "member").strip() or "member"
-        )
-        if self.default_member_role not in {"member", "admin"}:
-            raise RuntimeError("MEMBER_ROLE must be 'member' or 'admin'.")
-
     # --- Derived URLs --------------------------------------------------------
     @property
     def github_redirect_uri(self) -> str:

@@ -29,12 +29,14 @@
   {% if orgs %}
     <table>
       <thead>
-        <tr><th>Organization</th><th>Slug</th><th>Join role</th><th>Passcode</th><th>Actions</th></tr>
+        <tr><th>Organization</th><th>Slug</th><th>Passcode</th><th>Actions</th></tr>
       </thead>
       <tbody>
         {% for org in orgs %}
           <tr>
-            <td>{{ org.display_name }}</td>
+            <td>
+              <a href="https://github.com/{{ org.slug }}" target="_blank" rel="noopener">{{ org.display_name }}</a>
+            </td>
             <td>
               <code>{{ org.slug }}</code>
               {% if check_result and check_result.slug == org.slug %}
@@ -43,10 +45,21 @@
                 </span>
               {% endif %}
             </td>
-            <td>{{ org.member_role }}</td>
             <td>
               {% if org.passcode %}
-                <code class="pass">{{ org.passcode }}</code>
+                <span class="passcell">
+                  <code class="pass">{{ org.passcode }}</code>
+                  <form method="post" action="{{ url_for('admin.regenerate_passcode', slug=org.slug) }}"
+                        onsubmit="return confirm('Generate a new passcode for {{ org.display_name }}? The old one stops working.');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                    <button class="btn btn-secondary btn-icon" type="submit"
+                            title="Generate a new code" aria-label="Generate a new code for {{ org.display_name }}">
+                      <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M8 2.5a5.5 5.5 0 0 0-5.06 3.35.75.75 0 1 1-1.38-.58A7 7 0 0 1 13.5 4.27V2.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-.75.75h-3.5a.75.75 0 0 1 0-1.5h1.88A5.49 5.49 0 0 0 8 2.5Zm5.7 5.65a.75.75 0 0 1 .43.97A7 7 0 0 1 2.5 11.73v1.52a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 1.75 9h3.5a.75.75 0 0 1 0 1.5H3.37A5.5 5.5 0 0 0 12.73 8.6a.75.75 0 0 1 .97-.45Z"></path>
+                      </svg>
+                    </button>
+                  </form>
+                </span>
               {% else %}
                 <span class="badge missing">not set</span>
               {% endif %}
@@ -58,11 +71,6 @@
                   <button class="btn btn-secondary btn-sm" type="submit">Check</button>
                 </form>
                 <a class="btn btn-sm" href="{{ url_for('admin.org_qr', slug=org.slug) }}" target="_blank" rel="noopener">Project</a>
-                <form method="post" action="{{ url_for('admin.regenerate_passcode', slug=org.slug) }}"
-                      onsubmit="return confirm('Generate a new passcode for {{ org.display_name }}? The old one stops working.');">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-                  <button class="btn btn-secondary btn-sm" type="submit">New code</button>
-                </form>
                 <form method="post" action="{{ url_for('admin.delete_org', slug=org.slug) }}"
                       onsubmit="return confirm('Remove {{ org.display_name }} from the list?');">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
@@ -96,13 +104,6 @@
       <div>
         <label for="display_name">Display name (optional)</label>
         <input type="text" id="display_name" name="display_name" placeholder="My Hackathon Org" />
-      </div>
-      <div>
-        <label for="member_role">Join role</label>
-        <select id="member_role" name="member_role">
-          <option value="member" {% if default_role == 'member' %}selected{% endif %}>member</option>
-          <option value="admin" {% if default_role == 'admin' %}selected{% endif %}>admin</option>
-        </select>
       </div>
     </div>
     <label>&nbsp;</label>

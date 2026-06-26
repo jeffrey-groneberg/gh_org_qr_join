@@ -106,14 +106,3 @@ variable "github_invite_token" {
   type        = string
   sensitive   = true
 }
-
-variable "member_role" {
-  description = "Default role granted to joining members for a new org."
-  type        = string
-  default     = "member"
-
-  validation {
-    condition     = contains(["member", "admin"], var.member_role)
-    error_message = "member_role must be 'member' or 'admin'."
-  }
-}

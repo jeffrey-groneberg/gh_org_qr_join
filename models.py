@@ -15,8 +15,6 @@ from datetime import datetime, timezone
 # GitHub org logins: 1-39 chars, alphanumeric or single hyphens, not edge hyphens.
 _SLUG_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
 
-VALID_ROLES = {"member", "admin"}
-
 # Passcode alphabet: uppercase letters + digits, with visually ambiguous
 # characters removed (0/O, 1/I/L) so codes are easy to read aloud and type.
 _PASSCODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -33,7 +31,6 @@ class Org:
 
     slug: str
     display_name: str = ""
-    member_role: str = "member"
     passcode: str = ""
     created_at: str = field(default_factory=_now_iso)
 
@@ -52,7 +49,6 @@ class Org:
             "id": self.slug,
             "slug": self.slug,
             "display_name": self.display_name,
-            "member_role": self.member_role,
             "passcode": self.passcode,
             "created_at": self.created_at,
         }
@@ -62,7 +58,6 @@ class Org:
         return cls(
             slug=item["slug"],
             display_name=item.get("display_name", ""),
-            member_role=item.get("member_role", "member"),
             passcode=item.get("passcode", ""),
             created_at=item.get("created_at", ""),
         )

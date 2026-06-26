@@ -241,7 +241,9 @@ def join(slug: str):
                 "Authorization": f"Bearer {config.invite_token}",
                 "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
-            json={"role": org.member_role},
+            # New members always join as "member"; org admins are promoted on
+            # GitHub.com, not here.
+            json={"role": "member"},
             timeout=HTTP_TIMEOUT,
         )
     except requests.RequestException:

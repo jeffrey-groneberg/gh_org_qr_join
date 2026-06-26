@@ -26,7 +26,7 @@ from admin import admin_bp
 from auth import auth_bp
 from config import Config
 from participants import participants_bp
-from repository import CosmosOrgStore, OrgStore
+from org_store import CosmosOrgStore, OrgStore
 from telemetry import configure_telemetry
 
 logger = logging.getLogger(__name__)

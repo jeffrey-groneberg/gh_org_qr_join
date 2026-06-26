@@ -1,7 +1,7 @@
 """Admin org-list CRUD, gated behind Entra sign-in + the admin app role.
 
 This manages only the app's list of joinable orgs (slug + display name +
-default role) and renders each org's QR code for projecting. Member management
+passcode) and renders each org's QR code for projecting. Member management
 (invites, roles, removals) is intentionally left to GitHub.com. Persistence is
 provided by the injected ``OrgStore`` on ``current_app.config["ORG_STORE"]``.
 """
@@ -26,8 +26,8 @@ from flask import (
 
 from auth import admin_required, current_admin
 from github import check_org_status
-from models import VALID_ROLES, Org
-from repository import OrgExistsError
+from models import Org
+from org_store import OrgExistsError
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -64,11 +64,6 @@ def _check_admin_csrf() -> None:
         abort(400)
 
 
-def _clean_role(raw: str) -> str:
-    role = (raw or "").strip().lower()
-    return role if role in VALID_ROLES else _config().default_member_role
-
-
 def _qr_svg(target: str, scale: int = 10) -> str:
     """Render a QR as an inline SVG with a viewBox so it scales and stays
     centered regardless of the QR's intrinsic pixel size (which varies with the
@@ -91,7 +86,6 @@ def list_orgs():
         "admin_list.html",
         orgs=_store().list(),
         admin_name=admin.get("name") if admin else None,
-        default_role=_config().default_member_role,
         error=session.pop("admin_error", None),
         notice=session.pop("admin_notice", None),
         check_result=session.pop("check_result", None),
@@ -106,7 +100,6 @@ def create_org():
     _check_admin_csrf()
     slug = Org.normalize_slug(request.form.get("slug", ""))
     display_name = request.form.get("display_name", "").strip()
-    role = _clean_role(request.form.get("member_role", ""))
 
     if not Org.is_valid_slug(slug):
         session["admin_error"] = "Enter a valid GitHub organization login (e.g. my-org)."
@@ -132,7 +125,6 @@ def create_org():
     org = Org(
         slug=slug,
         display_name=display_name or slug,
-        member_role=role,
         passcode=Org.generate_passcode(),
     )
     try:
@@ -142,7 +134,7 @@ def create_org():
         return redirect(url_for("admin.list_orgs"))
 
     session["admin_notice"] = f"Added '{org.name}' (join passcode: {org.passcode})."
-    logger.info("Org added (slug=%s, role=%s)", org.slug, org.member_role)
+    logger.info("Org added (slug=%s)", org.slug)
     return redirect(url_for("admin.list_orgs"))
 
 
@@ -164,16 +156,15 @@ def regenerate_passcode(slug: str):
 @admin_bp.post("/admin/orgs/<slug>")
 @admin_required
 def update_org(slug: str):
-    """Rename an org or change its default join role (slug is immutable)."""
+    """Rename an org (slug is immutable)."""
     _check_admin_csrf()
     _get_org_or_404(slug)
     display_name = request.form.get("display_name", "").strip() or slug
-    role = _clean_role(request.form.get("member_role", ""))
-    org = _store().update(slug, display_name=display_name, member_role=role)
+    org = _store().update(slug, display_name=display_name)
     if org is None:
         abort(404)
     session["admin_notice"] = f"Updated '{org.name}'."
-    logger.info("Org updated (slug=%s, role=%s)", org.slug, org.member_role)
+    logger.info("Org updated (slug=%s)", org.slug)
     return redirect(url_for("admin.list_orgs"))
 
 
