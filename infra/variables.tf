@@ -106,3 +106,21 @@ variable "github_invite_token" {
   type        = string
   sensitive   = true
 }
+
+# --- GitHub Actions OIDC deployment ----------------------------------------
+variable "github_repository" {
+  description = "GitHub repository (owner/name) allowed to deploy via OIDC, e.g. jeffrey-groneberg/gh_org_qr_join."
+  type        = string
+  default     = "jeffrey-groneberg/gh_org_qr_join"
+
+  validation {
+    condition     = can(regex("^[^/]+/[^/]+$", var.github_repository))
+    error_message = "github_repository must be in 'owner/name' form."
+  }
+}
+
+variable "github_environment" {
+  description = "GitHub Environment whose deployments may assume the deploy identity (pinned in the OIDC subject)."
+  type        = string
+  default     = "production"
+}
