@@ -15,7 +15,7 @@
   {% elif invited %}
     <div class="success">
       {% if invite_state == "active" %}
-        <p class="eyebrow">Already aboard</p>
+        <p class="eyebrow">Already a member</p>
         <h1>You're in</h1>
         <p class="lead">
           <strong>{{ user }}</strong>, your account is already part of
@@ -26,7 +26,7 @@
         </a>
       {% else %}
         <p class="eyebrow">Invitation sent</p>
-        <h1>Check you in</h1>
+        <h1>Almost there</h1>
         <p class="lead">
           <strong>{{ user }}</strong>, we've invited you to
           <strong>{{ org.name }}</strong>. Accept it to finish joining — there's
