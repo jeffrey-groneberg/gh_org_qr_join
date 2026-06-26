@@ -8,7 +8,7 @@ resource "random_uuid" "admin_role" {}
 
 resource "azuread_application" "admin" {
   display_name     = "${local.app_name}-admin"
-  owners           = [data.azuread_client_config.current.object_id, azurerm_user_assigned_identity.github_infra.principal_id]
+  owners           = [data.azuread_client_config.current.object_id, data.azurerm_user_assigned_identity.infra.principal_id]
   sign_in_audience = "AzureADMyOrg"
 
   web {
@@ -39,7 +39,7 @@ resource "azuread_application" "admin" {
 
 resource "azuread_service_principal" "admin" {
   client_id = azuread_application.admin.client_id
-  owners    = [data.azuread_client_config.current.object_id, azurerm_user_assigned_identity.github_infra.principal_id]
+  owners    = [data.azuread_client_config.current.object_id, data.azurerm_user_assigned_identity.infra.principal_id]
 
   # See azuread_application.admin: freeze owners so a CI run doesn't recompute
   # (and drop) the human owner.

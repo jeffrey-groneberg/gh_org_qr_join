@@ -1,21 +1,23 @@
 name: Infra (Terraform)
 
-# Manages Azure infrastructure with Terraform. Runs only when files under infra/
-# change, so ordinary app releases never touch infrastructure. Pull requests get
-# a plan for review; pushes to main apply, gated behind the (stricter)
-# "production-infra" GitHub environment. Auth uses GitHub OIDC against a
-# dedicated privileged identity — no secret/publish profile is stored.
+# Manages Azure application infrastructure (infra/1_app) with Terraform. Runs
+# only when files under infra/1_app change, so ordinary app releases never touch
+# infrastructure. The 0_bootstrap layer (state account + CI identity) is applied
+# once by a human and is intentionally NOT driven from CI. Pull requests get a
+# plan; pushes to main apply, gated behind the (stricter) "production-infra"
+# GitHub environment. Auth uses GitHub OIDC against a dedicated privileged
+# identity — no secret/publish profile is stored.
 
 on:
   pull_request:
     branches: [main]
     paths:
-      - "infra/**"
+      - "infra/1_app/**"
       - ".github/workflows/infra.yml"
   push:
     branches: [main]
     paths:
-      - "infra/**"
+      - "infra/1_app/**"
       - ".github/workflows/infra.yml"
   workflow_dispatch: {}
 
@@ -39,10 +41,13 @@ env:
   TF_VAR_github_client_id: ${{ secrets.TF_GITHUB_CLIENT_ID }}
   TF_VAR_github_client_secret: ${{ secrets.TF_GITHUB_CLIENT_SECRET }}
   TF_VAR_github_invite_token: ${{ secrets.TF_GITHUB_INVITE_TOKEN }}
+  # Name of the infra identity created by 0_bootstrap (not secret). Needed so
+  # 1_app can read it; defaults differ per environment, so pass it explicitly.
+  TF_VAR_infra_identity_name: ${{ vars.INFRA_IDENTITY_NAME }}
 
 defaults:
   run:
-    working-directory: infra
+    working-directory: infra/1_app
 
 jobs:
   plan:
@@ -74,7 +79,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tfplan
-          path: infra/tfplan
+          path: infra/1_app/tfplan
           retention-days: 5
           if-no-files-found: error
 
@@ -103,7 +108,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: tfplan
-          path: infra
+          path: infra/1_app
 
       - name: Terraform apply
         run: terraform apply -input=false -no-color tfplan

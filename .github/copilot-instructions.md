@@ -36,9 +36,19 @@ for them. Validate changes by building the app factory (below).
   non-root user — **local dev / portability only**. The Azure deploy uses App
   Service's built-in Python runtime (Oryx), not this image. All config is via
   env vars — see `.env.example`.
-- Deploy: Terraform in `infra/` provisions App Service + Entra Easy Auth +
-  Cosmos DB (serverless) + Application Insights. Validate IaC with
-  `cd infra && terraform fmt -check && terraform init -backend=false && terraform validate`.
+- Deploy: Terraform is split into two layers. `infra/0_bootstrap/` (day-0, local
+  state, human-run) creates the resource group, the remote-state Storage Account,
+  and the privileged GitHub OIDC **infra** identity. `infra/1_app/` (remote state,
+  run by the infra workflow) provisions App Service + Entra Easy Auth + Cosmos DB
+  (serverless) + Application Insights + the least-privilege **app-deploy**
+  identity, reading the RG and infra identity from `0_bootstrap` via data sources.
+  Validate either layer with `terraform fmt -check && terraform validate` (run
+  `terraform init` first; `1_app` needs the backend, so use `-backend=false` for
+  an offline validate).
+- CI/CD: `.github/workflows/deploy-app.yml` (app code → App Service via OIDC) and
+  `.github/workflows/infra.yml` (`infra/1_app` Terraform plan/apply via OIDC,
+  gated by the `production-infra` environment). No publish profile or client
+  secret is stored — both use federated managed-identity credentials.
 
 ## Architecture (the big picture)
 
@@ -73,11 +83,15 @@ from the **composition root** — reading any one file is not enough:
   page.
 - `templates/` — server-rendered Jinja, all extending `base.html` (GitHub dark
   theme inline CSS).
-- `infra/` — Terraform (azurerm + azuread) for the Azure deployment: resource
-  group, Linux App Service Plan/Web App (system-assigned identity), Cosmos DB
-  (serverless, key auth disabled) + data-plane RBAC role assignment, Application
-  Insights, and the Entra app registration whose **admin** app role is wired into
-  Easy Auth.
+- `infra/0_bootstrap/` — Terraform (azurerm) day-0 layer: the app resource group,
+  the Terraform remote-state Storage Account/container, and the privileged GitHub
+  OIDC infra identity (UMI + federated credential + RBAC). Local state, human-run.
+- `infra/1_app/` — Terraform (azurerm + azuread) application layer: Linux App
+  Service Plan/Web App (system-assigned identity), Cosmos DB (serverless, key auth
+  disabled) + data-plane RBAC role assignment, Application Insights, the Entra app
+  registration whose **admin** app role is wired into Easy Auth, and the
+  least-privilege app-deploy OIDC identity. Remote state; RG + infra identity read
+  from `0_bootstrap` via data sources.
 
 ### Three credentials, each at minimum privilege
 

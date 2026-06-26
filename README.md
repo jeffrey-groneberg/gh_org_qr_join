@@ -80,7 +80,10 @@ registration with an **admin** app role wired into App Service Easy Auth
 You do **not** need to invent an `app_name` — Terraform auto-generates a
 globally-unique `qr-org-join-<random>` name. Because the GitHub OAuth App
 callback depends on that name (and GitHub OAuth Apps can't be created via API),
-deployment is two-phase. The `infra/deploy.sh` helper runs both phases for you.
+deployment is two-phase. The `infra/1_app/deploy.sh` helper runs both phases for
+you. (First apply the **`infra/0_bootstrap`** layer once — see
+[CI/CD](#cicd-github-actions-oidc--no-stored-secrets) — which creates the
+resource group, remote state, and CI identity.)
 
 ### 1. Create the invite PAT (classic, `admin:org`)
 At <https://github.com/settings/tokens> → **Generate new token (classic)** with
@@ -89,7 +92,7 @@ participants will join. If an org enforces SAML SSO, authorize the token for it.
 
 ### 2. Seed Terraform variables
 ```bash
-cd infra
+cd infra/1_app
 cp terraform.tfvars.example terraform.tfvars
 ```
 Set `tenant_id` (leave `app_name` empty to auto-generate). You can leave the
@@ -156,45 +159,59 @@ Two path-filtered workflows so app releases never redeploy infra:
   (`**.py`, `templates/**`, `requirements.txt`). Logs in via GitHub **OIDC** and
   ships the source to App Service (Oryx builds it). Uses a least-privilege
   identity (**Website Contributor on the Web App only**).
-- **`.github/workflows/infra.yml`** — runs only on changes under `infra/**`.
+- **`.github/workflows/infra.yml`** — runs only on changes under `infra/1_app/**`.
   Plans on PRs, applies on pushes to `main`, gated behind the
   **`production-infra`** environment. Uses a separate, more-privileged identity.
 
 Both authenticate with federated credentials (no client secret / publish
-profile). The identities, their minimal RBAC, and the federated credentials are
-all defined in [`infra/cicd.tf`](infra/cicd.tf).
+profile).
 
-### Terraform remote state (one-time bootstrap)
+### Two Terraform layers (`infra/0_bootstrap`, `infra/1_app`)
 
-Infra-in-CI needs shared state, so Terraform uses an **azurerm backend** (a
-Storage Account, AAD-auth, no keys). Create it once, then init against it:
+Infra is split so the pipeline's own identity isn't managed by the pipeline:
+
+- **`0_bootstrap`** (local state, run once by a human) — creates the application
+  resource group, the Terraform remote-state Storage Account + container, and the
+  privileged **infra CI identity** (UMI + federated credential + RBAC). This is
+  the day-0 seed; everything it makes must exist before CI can run.
+- **`1_app`** (remote state in that Storage Account, run by the infra workflow) —
+  the App Service, Cosmos, App Insights, the Entra admin app, and the
+  least-privilege **app-deploy identity**. It reads the resource group and infra
+  identity from `0_bootstrap` via data sources.
+
+From a fresh clone:
 
 ```bash
 az login
-./infra/bootstrap.sh            # idempotent: creates the state Storage Account
-cd infra && terraform init      # backend values are baked into backend.tf
+
+# Day 0 — seed (human, local state):
+cd infra/0_bootstrap
+terraform init && terraform apply
+terraform output            # note state account + identity values
+
+# App layer (uses the remote backend created above):
+cd ../1_app
+terraform init \
+  -backend-config="resource_group_name=$(terraform -chdir=../0_bootstrap output -raw state_resource_group_name)" \
+  -backend-config="storage_account_name=$(terraform -chdir=../0_bootstrap output -raw state_storage_account_name)" \
+  -backend-config="container_name=$(terraform -chdir=../0_bootstrap output -raw state_container_name)"
+./deploy.sh                 # two-phase apply (prints GitHub OAuth URLs)
 ```
 
-`bootstrap.sh` is safe to re-run and is the only manual step a from-scratch
-clone needs before normal `terraform` usage.
+(The backend values are also baked into `1_app/backend.tf` as defaults.)
 
-### Wire up GitHub (after `terraform apply` once locally)
+### Wire up GitHub (after the app layer is applied once)
 
-Get the identity values:
+Get the values from each layer's `terraform output`, then in the GitHub repo
+create two **Environments** — `production` (app deploys) and `production-infra`
+(infra; add required reviewers + restrict to `main`) — and set:
 
-```bash
-cd infra && terraform output
-```
-
-In the GitHub repo, create two **Environments** — `production` (for app
-deploys) and `production-infra` (for infra; add required reviewers + restrict to
-`main`) — then set:
-
-| Kind | Name | Value |
+| Kind | Name | Value (source) |
 | --- | --- | --- |
-| Variable | `AZURE_WEBAPP_NAME` | the `app_name` output |
-| Secret | `AZURE_CLIENT_ID` | `github_deploy_client_id` (app deploys) |
-| Secret | `AZURE_INFRA_CLIENT_ID` | `github_infra_client_id` (infra) |
+| Variable | `AZURE_WEBAPP_NAME` | `1_app` → `app_name` |
+| Variable | `INFRA_IDENTITY_NAME` | `0_bootstrap` → `infra_identity_name` |
+| Secret | `AZURE_CLIENT_ID` | `1_app` → `github_deploy_client_id` |
+| Secret | `AZURE_INFRA_CLIENT_ID` | `0_bootstrap` → `infra_identity_client_id` |
 | Secret | `AZURE_TENANT_ID` | your tenant ID |
 | Secret | `AZURE_SUBSCRIPTION_ID` | your subscription ID |
 | Secret | `TF_GITHUB_CLIENT_ID` | GitHub OAuth App client ID |
@@ -202,7 +219,7 @@ deploys) and `production-infra` (for infra; add required reviewers + restrict to
 | Secret | `TF_GITHUB_INVITE_TOKEN` | GitHub `admin:org` PAT |
 
 > The infra identity is an **owner** of the Entra admin app registration (set in
-> `entra.tf`), which lets it manage that app without a directory-wide role.
+> `1_app/entra.tf`), which lets it manage that app without a directory-wide role.
 > Assigning the admin **app role to users** (`admin_principal_object_ids`) still
 > needs a directory admin; do that locally or in the portal.
 
@@ -218,7 +235,8 @@ deploys) and `production-infra` (for infra; add required reviewers + restrict to
 - `admin.py` — org-list CRUD + QR page + org check
 - `participants.py` — GitHub OAuth identity + join
 - `templates/` — server-rendered Jinja (GitHub dark theme)
-- `infra/` — Terraform IaC for Azure (incl. `cicd.tf`, `backend.tf`, `bootstrap.sh`)
+- `infra/0_bootstrap/` — day-0 Terraform: state account + infra CI identity
+- `infra/1_app/` — application Terraform (App Service, Cosmos, Entra app, deploy identity)
 - `.github/workflows/` — `deploy-app.yml` (app) and `infra.yml` (Terraform)
 
 ## Observability

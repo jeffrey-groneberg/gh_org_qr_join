@@ -5,7 +5,7 @@ output "app_name" {
 
 output "resource_group_name" {
   description = "Resource group the app is deployed into."
-  value       = azurerm_resource_group.this.name
+  value       = data.azurerm_resource_group.app.name
 }
 
 output "app_url" {
@@ -80,14 +80,4 @@ output "github_deploy_subscription_id" {
 output "github_deploy_subject" {
   description = "OIDC subject this identity trusts (must match the workflow's repo + environment)."
   value       = azurerm_federated_identity_credential.github_deploy.subject
-}
-
-output "github_infra_client_id" {
-  description = "AZURE_INFRA_CLIENT_ID — client ID of the privileged identity the infra workflow assumes via OIDC."
-  value       = azurerm_user_assigned_identity.github_infra.client_id
-}
-
-output "github_infra_subject" {
-  description = "OIDC subject the infra identity trusts (repo + infra environment)."
-  value       = azurerm_federated_identity_credential.github_infra.subject
 }

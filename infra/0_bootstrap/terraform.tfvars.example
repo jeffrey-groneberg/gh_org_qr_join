@@ -1,0 +1,8 @@
+# 0_bootstrap variables — all have sensible defaults; override only if needed.
+# Copy to terraform.tfvars and edit. This file is committed; terraform.tfvars
+# (real values) is gitignored.
+
+# github_repository        = "owner/repo"
+# github_infra_environment = "production-infra"
+# location                 = "westeurope"
+# infra_identity_name      = "qr-org-join-gh-infra"

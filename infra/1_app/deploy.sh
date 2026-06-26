@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 #
-# Two-phase deploy for QR Org Join.
+# Two-phase deploy for the QR Org Join *application* layer (infra/1_app).
+#
+# Prerequisite: the bootstrap layer (infra/0_bootstrap) must already be applied
+# (it creates the resource group, the Terraform remote-state Storage Account, and
+# the infra CI identity). Run that once first:
+#   cd ../0_bootstrap && terraform init && terraform apply
 #
 # Because the App Service hostname is auto-generated (app_name is left empty),
 # the GitHub OAuth App's callback URL can only be known after Terraform picks the

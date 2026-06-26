@@ -22,15 +22,16 @@ resource "random_string" "suffix" {
   special = false
 }
 
-resource "azurerm_resource_group" "this" {
-  name     = var.resource_group_name
-  location = var.location
+# The application resource group is created in 0_bootstrap (so the infra CI
+# identity can be granted RBAC on it first); read it here.
+data "azurerm_resource_group" "app" {
+  name = var.app_resource_group_name
 }
 
 resource "azurerm_service_plan" "this" {
   name                = "${local.app_name}-plan"
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
+  resource_group_name = data.azurerm_resource_group.app.name
+  location            = data.azurerm_resource_group.app.location
   os_type             = "Linux"
   sku_name            = var.sku_name
 }
@@ -38,16 +39,16 @@ resource "azurerm_service_plan" "this" {
 # Workspace-based Application Insights (the modern, required topology).
 resource "azurerm_log_analytics_workspace" "this" {
   name                = "${local.app_name}-logs"
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
+  resource_group_name = data.azurerm_resource_group.app.name
+  location            = data.azurerm_resource_group.app.location
   sku                 = "PerGB2018"
   retention_in_days   = var.log_retention_in_days
 }
 
 resource "azurerm_application_insights" "this" {
   name                = "${local.app_name}-ai"
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
+  resource_group_name = data.azurerm_resource_group.app.name
+  location            = data.azurerm_resource_group.app.location
   workspace_id        = azurerm_log_analytics_workspace.this.id
   application_type    = "web"
 }
@@ -56,7 +57,7 @@ resource "azurerm_application_insights" "this" {
 # Orgs are stored here and accessed passwordlessly via managed identity + RBAC.
 resource "azurerm_cosmosdb_account" "this" {
   name                = "${local.app_name}-cosmos"
-  resource_group_name = azurerm_resource_group.this.name
+  resource_group_name = data.azurerm_resource_group.app.name
   location            = local.cosmos_location
   offer_type          = "Standard"
   kind                = "GlobalDocumentDB"
@@ -80,13 +81,13 @@ resource "azurerm_cosmosdb_account" "this" {
 
 resource "azurerm_cosmosdb_sql_database" "this" {
   name                = "qrorgjoin"
-  resource_group_name = azurerm_resource_group.this.name
+  resource_group_name = data.azurerm_resource_group.app.name
   account_name        = azurerm_cosmosdb_account.this.name
 }
 
 resource "azurerm_cosmosdb_sql_container" "orgs" {
   name                  = "orgs"
-  resource_group_name   = azurerm_resource_group.this.name
+  resource_group_name   = data.azurerm_resource_group.app.name
   account_name          = azurerm_cosmosdb_account.this.name
   database_name         = azurerm_cosmosdb_sql_database.this.name
   partition_key_paths   = ["/id"]
@@ -97,7 +98,7 @@ resource "azurerm_cosmosdb_sql_container" "orgs" {
 # Contributor: read + write items). The role's well-known GUID is
 # 00000000-0000-0000-0000-000000000002.
 resource "azurerm_cosmosdb_sql_role_assignment" "app" {
-  resource_group_name = azurerm_resource_group.this.name
+  resource_group_name = data.azurerm_resource_group.app.name
   account_name        = azurerm_cosmosdb_account.this.name
   role_definition_id  = "${azurerm_cosmosdb_account.this.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002"
   principal_id        = azurerm_linux_web_app.this.identity[0].principal_id
@@ -109,7 +110,7 @@ resource "azurerm_cosmosdb_sql_role_assignment" "app" {
 resource "azurerm_cosmosdb_sql_role_assignment" "devs" {
   for_each = toset(var.cosmos_data_principal_object_ids)
 
-  resource_group_name = azurerm_resource_group.this.name
+  resource_group_name = data.azurerm_resource_group.app.name
   account_name        = azurerm_cosmosdb_account.this.name
   role_definition_id  = "${azurerm_cosmosdb_account.this.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002"
   principal_id        = each.value
@@ -118,7 +119,7 @@ resource "azurerm_cosmosdb_sql_role_assignment" "devs" {
 
 resource "azurerm_linux_web_app" "this" {
   name                = local.app_name
-  resource_group_name = azurerm_resource_group.this.name
+  resource_group_name = data.azurerm_resource_group.app.name
   location            = azurerm_service_plan.this.location
   service_plan_id     = azurerm_service_plan.this.id
 
