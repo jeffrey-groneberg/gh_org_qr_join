@@ -79,3 +79,7 @@ Thumbs.db
 
 # Azure CLI deploy artifacts
 .azure/
+
+# Terraform plan artifacts
+tfplan
+*.tfplan

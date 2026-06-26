@@ -1,0 +1,58 @@
+name: Deploy app
+
+# Ships application code to the existing App Service. Runs only when app files
+# change — never on pure infrastructure edits — so app releases don't touch
+# infra. Authentication uses GitHub OIDC against a least-privilege managed
+# identity (Website Contributor on this Web App only); no secret is stored.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**.py"
+      - "templates/**"
+      - "requirements.txt"
+      - ".github/workflows/deploy-app.yml"
+  workflow_dispatch: {}
+
+# Don't pile up releases; cancel an in-flight deploy if a newer push arrives.
+concurrency:
+  group: deploy-app
+  cancel-in-progress: true
+
+permissions:
+  id-token: write # required to request the OIDC token
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production # gate with required reviewers in repo settings
+    steps:
+      - uses: actions/checkout@v4
+
+      # Stage only the runtime files (exclude infra/, tests, VCS, local venvs).
+      # App Service builds dependencies with Oryx (SCM_DO_BUILD_DURING_DEPLOYMENT
+      # is set as an app setting), so we ship source, not a built virtualenv.
+      - name: Stage deployment package
+        run: |
+          mkdir -p package
+          cp -r *.py templates requirements.txt package/
+          echo "Staged:" && ls -1 package
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          package: package
+
+      - name: Logout
+        if: always()
+        run: az logout || true

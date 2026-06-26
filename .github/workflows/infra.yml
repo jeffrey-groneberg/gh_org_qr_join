@@ -1,0 +1,109 @@
+name: Infra (Terraform)
+
+# Manages Azure infrastructure with Terraform. Runs only when files under infra/
+# change, so ordinary app releases never touch infrastructure. Pull requests get
+# a plan for review; pushes to main apply, gated behind the (stricter)
+# "production-infra" GitHub environment. Auth uses GitHub OIDC against a
+# dedicated privileged identity — no secret/publish profile is stored.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: infra-terraform
+  cancel-in-progress: false # never interrupt an in-flight apply
+
+permissions:
+  id-token: write # request the OIDC token
+  contents: read
+  pull-requests: write # post the plan summary on PRs
+
+env:
+  # OIDC auth for the azurerm/azuread providers and the azurerm state backend.
+  ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID: ${{ secrets.AZURE_INFRA_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  # tfvars supplied as environment variables (secrets never land in the repo).
+  TF_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+  TF_VAR_github_client_id: ${{ secrets.TF_GITHUB_CLIENT_ID }}
+  TF_VAR_github_client_secret: ${{ secrets.TF_GITHUB_CLIENT_SECRET }}
+  TF_VAR_github_invite_token: ${{ secrets.TF_GITHUB_INVITE_TOKEN }}
+
+defaults:
+  run:
+    working-directory: infra
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_INFRA_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        run: terraform plan -input=false -no-color -out=tfplan
+
+      - name: Upload plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: infra/tfplan
+          retention-days: 5
+          if-no-files-found: error
+
+  apply:
+    needs: plan
+    # Only apply on a push to main (not on PRs). Approval is enforced by the
+    # protection rules on the "production-infra" environment.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production-infra
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_INFRA_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Download plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: infra
+
+      - name: Terraform apply
+        run: terraform apply -input=false -no-color tfplan

@@ -120,7 +120,26 @@ variable "github_repository" {
 }
 
 variable "github_environment" {
-  description = "GitHub Environment whose deployments may assume the deploy identity (pinned in the OIDC subject)."
+  description = "GitHub Environment whose deployments may assume the app-deploy identity (pinned in the OIDC subject)."
   type        = string
   default     = "production"
+}
+
+variable "github_infra_environment" {
+  description = "GitHub Environment whose deployments may assume the privileged infra identity (kept separate so infra applies can be gated more strictly)."
+  type        = string
+  default     = "production-infra"
+}
+
+# --- Terraform remote state backend (created by infra/bootstrap.sh) ---------
+variable "tfstate_resource_group_name" {
+  description = "Resource group holding the Terraform state Storage Account."
+  type        = string
+  default     = "rg-qr-org-join-tfstate"
+}
+
+variable "tfstate_storage_account_name" {
+  description = "Storage Account holding the Terraform state blob."
+  type        = string
+  default     = "qrorgjointfstate"
 }

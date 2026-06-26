@@ -148,6 +148,64 @@ app role: Entra admin center → **Enterprise applications** → `<app_name>-adm
 > local development and portability (`docker run`); it plays no part in the
 > Terraform deployment.
 
+## CI/CD (GitHub Actions, OIDC — no stored secrets)
+
+Two path-filtered workflows so app releases never redeploy infra:
+
+- **`.github/workflows/deploy-app.yml`** — runs on pushes that touch app code
+  (`**.py`, `templates/**`, `requirements.txt`). Logs in via GitHub **OIDC** and
+  ships the source to App Service (Oryx builds it). Uses a least-privilege
+  identity (**Website Contributor on the Web App only**).
+- **`.github/workflows/infra.yml`** — runs only on changes under `infra/**`.
+  Plans on PRs, applies on pushes to `main`, gated behind the
+  **`production-infra`** environment. Uses a separate, more-privileged identity.
+
+Both authenticate with federated credentials (no client secret / publish
+profile). The identities, their minimal RBAC, and the federated credentials are
+all defined in [`infra/cicd.tf`](infra/cicd.tf).
+
+### Terraform remote state (one-time bootstrap)
+
+Infra-in-CI needs shared state, so Terraform uses an **azurerm backend** (a
+Storage Account, AAD-auth, no keys). Create it once, then init against it:
+
+```bash
+az login
+./infra/bootstrap.sh            # idempotent: creates the state Storage Account
+cd infra && terraform init      # backend values are baked into backend.tf
+```
+
+`bootstrap.sh` is safe to re-run and is the only manual step a from-scratch
+clone needs before normal `terraform` usage.
+
+### Wire up GitHub (after `terraform apply` once locally)
+
+Get the identity values:
+
+```bash
+cd infra && terraform output
+```
+
+In the GitHub repo, create two **Environments** — `production` (for app
+deploys) and `production-infra` (for infra; add required reviewers + restrict to
+`main`) — then set:
+
+| Kind | Name | Value |
+| --- | --- | --- |
+| Variable | `AZURE_WEBAPP_NAME` | the `app_name` output |
+| Secret | `AZURE_CLIENT_ID` | `github_deploy_client_id` (app deploys) |
+| Secret | `AZURE_INFRA_CLIENT_ID` | `github_infra_client_id` (infra) |
+| Secret | `AZURE_TENANT_ID` | your tenant ID |
+| Secret | `AZURE_SUBSCRIPTION_ID` | your subscription ID |
+| Secret | `TF_GITHUB_CLIENT_ID` | GitHub OAuth App client ID |
+| Secret | `TF_GITHUB_CLIENT_SECRET` | GitHub OAuth App client secret |
+| Secret | `TF_GITHUB_INVITE_TOKEN` | GitHub `admin:org` PAT |
+
+> The infra identity is an **owner** of the Entra admin app registration (set in
+> `entra.tf`), which lets it manage that app without a directory-wide role.
+> Assigning the admin **app role to users** (`admin_principal_object_ids`) still
+> needs a directory admin; do that locally or in the portal.
+
 ## Layout
 
 - `app.py` — pure app factory `create_app(config, store)` + composition root
@@ -160,7 +218,8 @@ app role: Entra admin center → **Enterprise applications** → `<app_name>-adm
 - `admin.py` — org-list CRUD + QR page + org check
 - `participants.py` — GitHub OAuth identity + join
 - `templates/` — server-rendered Jinja (GitHub dark theme)
-- `infra/` — Terraform IaC for Azure
+- `infra/` — Terraform IaC for Azure (incl. `cicd.tf`, `backend.tf`, `bootstrap.sh`)
+- `.github/workflows/` — `deploy-app.yml` (app) and `infra.yml` (Terraform)
 
 ## Observability
 
