@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import re
-import secrets
 
 import segno
 from flask import (
@@ -49,21 +48,6 @@ def _get_org_or_404(slug: str) -> Org:
     return org
 
 
-def _ensure_admin_csrf() -> str:
-    token = session.get("admin_csrf")
-    if not token:
-        token = secrets.token_urlsafe(32)
-        session["admin_csrf"] = token
-    return token
-
-
-def _check_admin_csrf() -> None:
-    submitted = request.form.get("csrf_token", "")
-    expected = session.get("admin_csrf", "")
-    if not expected or not secrets.compare_digest(submitted, expected):
-        abort(400)
-
-
 def _qr_svg(target: str, scale: int = 10) -> str:
     """Render a QR as an inline SVG with a viewBox so it scales and stays
     centered regardless of the QR's intrinsic pixel size (which varies with the
@@ -89,7 +73,6 @@ def list_orgs():
         error=session.pop("admin_error", None),
         notice=session.pop("admin_notice", None),
         check_result=session.pop("check_result", None),
-        csrf_token=_ensure_admin_csrf(),
     )
 
 
@@ -97,7 +80,6 @@ def list_orgs():
 @admin_required
 def create_org():
     """Register a new org in the app's list."""
-    _check_admin_csrf()
     slug = Org.normalize_slug(request.form.get("slug", ""))
     display_name = request.form.get("display_name", "").strip()
 
@@ -142,7 +124,6 @@ def create_org():
 @admin_required
 def regenerate_passcode(slug: str):
     """Generate a fresh join passcode for an org (invalidates the old one)."""
-    _check_admin_csrf()
     _get_org_or_404(slug)
     passcode = Org.generate_passcode()
     org = _store().set_passcode(slug, passcode)
@@ -157,7 +138,6 @@ def regenerate_passcode(slug: str):
 @admin_required
 def update_org(slug: str):
     """Rename an org (slug is immutable)."""
-    _check_admin_csrf()
     _get_org_or_404(slug)
     display_name = request.form.get("display_name", "").strip() or slug
     org = _store().update(slug, display_name=display_name)
@@ -172,7 +152,6 @@ def update_org(slug: str):
 @admin_required
 def delete_org(slug: str):
     """Remove an org from the app's list (does not touch GitHub)."""
-    _check_admin_csrf()
     org = _get_org_or_404(slug)
     name = org.name
     _store().delete(slug)
@@ -185,7 +164,6 @@ def delete_org(slug: str):
 @admin_required
 def check_org(slug: str):
     """Validate an org against GitHub via the invite PAT and report the result."""
-    _check_admin_csrf()
     org = _get_org_or_404(slug)
     result = check_org_status(_config().invite_token, org.slug)
     session["check_result"] = {

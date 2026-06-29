@@ -60,14 +60,6 @@ def _get_org_or_404(slug: str) -> Org:
     return org
 
 
-def _ensure_csrf_token() -> str:
-    token = session.get("csrf_token")
-    if not token:
-        token = secrets.token_urlsafe(32)
-        session["csrf_token"] = token
-    return token
-
-
 def _is_active_member(token: str, slug: str, login: str) -> bool:
     """True if ``login`` is already an active member of the org.
 
@@ -103,7 +95,6 @@ def org_page(slug: str):
         invite_state=session.get("invite_state"),
         accept_url=f"https://github.com/orgs/{slug}/invitation",
         error=session.pop("flash_error", None),
-        csrf_token=_ensure_csrf_token(),
     )
 
 
@@ -215,11 +206,6 @@ def join(slug: str):
     login_name = session.get("user_login")
     if not login_name:
         return redirect(url_for("participants.org_page", slug=slug))
-
-    submitted = request.form.get("csrf_token", "")
-    expected = session.get("csrf_token", "")
-    if not expected or not secrets.compare_digest(submitted, expected):
-        abort(400)
 
     # Passcode gate: only participants who know the org's passcode may be invited.
     if not org.passcode:

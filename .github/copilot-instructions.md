@@ -123,10 +123,11 @@ This separation is the core security design — keep it intact:
   send the `Accept: application/vnd.github+json` and
   `X-GitHub-Api-Version: 2022-11-28` headers. Handle `requests.RequestException`
   and branch on status codes (e.g. 200/403/422) with user-facing flash messages.
-- **CSRF on every state-changing POST:** a per-session token
-  (`secrets.token_urlsafe`) is compared with `secrets.compare_digest` and the
-  request is `abort(400)`ed on mismatch. OAuth `state` is validated the same way.
-  Do not add a POST without this check.
+- **CSRF on every state-changing POST:** enforced app-wide by **Flask-WTF**
+  (`CSRFProtect`, initialised in `create_app`); forms render the hidden field via
+  `{{ csrf_token() }}`. No manual token plumbing per route. The OAuth `state` is
+  still validated manually with `secrets.compare_digest`. Don't disable CSRF for
+  a new POST; add `{{ csrf_token() }}` to its form.
 - **Logging & telemetry:** use a module-level `logger = logging.getLogger(__name__)`;
   log actions/outcomes at INFO, failures at WARNING. Never log secrets (tokens,
   client secrets) and keep PII (GitHub logins) to DEBUG — INFO logs use org

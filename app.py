@@ -21,6 +21,7 @@ import logging
 
 import flask
 from flask import render_template
+from flask_wtf import CSRFProtect
 
 from admin import admin_bp
 from auth import auth_bp
@@ -30,6 +31,8 @@ from org_store import CosmosOrgStore, OrgStore
 from telemetry import configure_telemetry
 
 logger = logging.getLogger(__name__)
+
+csrf = CSRFProtect()
 
 
 def create_app(config: Config, org_store: OrgStore) -> flask.Flask:
@@ -50,6 +53,10 @@ def create_app(config: Config, org_store: OrgStore) -> flask.Flask:
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=config.cookie_secure,
     )
+
+    # App-wide CSRF protection for every state-changing POST. Tokens are signed
+    # with SECRET_KEY and rendered in templates via {{ csrf_token() }}.
+    csrf.init_app(app)
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)

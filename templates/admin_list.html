@@ -19,7 +19,7 @@
       <span><strong>{{ check_result.name }}</strong> — {{ check_result.detail }}</span>
       {% if check_result.status == 'missing' %}
         <form method="post" action="{{ url_for('admin.delete_org', slug=check_result.slug) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
           <button class="btn btn-danger btn-sm" type="submit">Remove from list</button>
         </form>
       {% endif %}
@@ -51,7 +51,7 @@
                   <code class="pass">{{ org.passcode }}</code>
                   <form method="post" action="{{ url_for('admin.regenerate_passcode', slug=org.slug) }}"
                         onsubmit="return confirm('Generate a new passcode for {{ org.display_name }}? The old one stops working.');">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
                     <button class="btn btn-secondary btn-icon" type="submit"
                             title="Generate a new code" aria-label="Generate a new code for {{ org.display_name }}">
                       <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
@@ -67,13 +67,13 @@
             <td>
               <div class="actions">
                 <form method="post" action="{{ url_for('admin.check_org', slug=org.slug) }}">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
                   <button class="btn btn-secondary btn-sm" type="submit">Check</button>
                 </form>
                 <a class="btn btn-sm" href="{{ url_for('admin.org_qr', slug=org.slug) }}" target="_blank" rel="noopener">Project</a>
                 <form method="post" action="{{ url_for('admin.delete_org', slug=org.slug) }}"
                       onsubmit="return confirm('Remove {{ org.display_name }} from the list?');">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
                   <button class="btn btn-danger btn-sm" type="submit">Remove</button>
                 </form>
               </div>
@@ -95,7 +95,7 @@
     then add its login below.
   </p>
   <form method="post" action="{{ url_for('admin.create_org') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
     <div class="row">
       <div>
         <label for="slug">GitHub org login (slug)</label>

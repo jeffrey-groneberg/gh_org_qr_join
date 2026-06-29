@@ -51,7 +51,7 @@
     <p class="who">Signed in as <strong>{{ user }}</strong></p>
     <p class="hint">Not your <strong>personal</strong> account? Sign out below and use it instead.</p>
     <form method="post" action="{{ url_for('participants.join', slug=org.slug) }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <label for="passcode">Join code</label>
       <div class="codeentry" id="codeentry">
         <input class="code-real" type="text" id="passcode" name="passcode"
