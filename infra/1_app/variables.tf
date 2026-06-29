@@ -44,9 +44,15 @@ variable "infra_identity_name" {
 }
 
 variable "sku_name" {
-  description = "App Service Plan SKU. B1 is the smallest tier that supports Always On."
+  description = "App Service Plan SKU. S1 supports Always On + scale-out for event load; B1 is the smallest with Always On."
   type        = string
-  default     = "B1"
+  default     = "S1"
+}
+
+variable "instance_count" {
+  description = "Number of App Service Plan instances (scale-out). Sessions are stateless (signed cookies), so >1 is safe."
+  type        = number
+  default     = 3
 }
 
 variable "python_version" {

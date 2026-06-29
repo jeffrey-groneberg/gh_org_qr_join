@@ -34,6 +34,7 @@ resource "azurerm_service_plan" "this" {
   location            = data.azurerm_resource_group.app.location
   os_type             = "Linux"
   sku_name            = var.sku_name
+  worker_count        = var.instance_count
 }
 
 # Workspace-based Application Insights (the modern, required topology).
@@ -64,6 +65,18 @@ resource "azurerm_cosmosdb_account" "this" {
 
   # Force Entra ID (AAD) auth only — no account keys are issued or used.
   local_authentication_enabled = false
+
+  # App Service connects over public internet, so keep public access on. (A
+  # governance policy disabling this blocks the app with Cosmos 403 Forbidden;
+  # re-enable here or via `az cosmosdb update --public-network-access ENABLED`.)
+  public_network_access_enabled = true
+
+  # Exempt this account from MCAPS security-policy enforcement (e.g. the policy
+  # that disables public network access). Note: the platform may strip this tag
+  # after ~14 days, so the durable fix is private networking.
+  tags = {
+    SecurityControl = "Ignore"
+  }
 
   capabilities {
     name = "EnableServerless"
