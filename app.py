@@ -76,14 +76,45 @@ def create_app(config: Config, org_store: OrgStore) -> flask.Flask:
     return app
 
 
+# Loggers that must be quieted to WARNING. The Azure SDKs (and especially the
+# Azure Monitor exporter) log verbosely at INFO/DEBUG — including the exporter's
+# own "Transmission succeeded…" messages and per-request HTTP traces. With Azure
+# Monitor's logging instrumentation capturing the root logger, those records are
+# themselves exported as telemetry, which makes the exporter log again: a
+# self-amplifying feedback loop that floods the export buffer and ingestion,
+# causing the *application's* own logs (joins, invites) to be dropped. Silencing
+# these breaks the loop so meaningful logs flow reliably.
+_NOISY_LOGGERS = (
+    "azure",  # parent of azure.core / azure.identity / azure.cosmos / azure.monitor
+    "azure.core.pipeline.policies.http_logging_policy",
+    "azure.monitor.opentelemetry.exporter",
+    "azure.identity",
+    "azure.cosmos",
+    "urllib3",
+    "opentelemetry",
+)
+
+
+def _quiet_noisy_loggers() -> None:
+    """Force chatty Azure/HTTP SDK loggers to WARNING (idempotent)."""
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def _configure_logging(level_name: str) -> None:
-    """Send logs to stdout (captured by App Service) at the configured level."""
+    """Send logs to stdout (captured by App Service) at the configured level.
+
+    Application loggers stay at ``level`` (INFO by default); chatty Azure/HTTP
+    SDK loggers are forced to WARNING to prevent a telemetry feedback loop that
+    would otherwise drown out — and drop — the app's own log records.
+    """
     level = getattr(logging, level_name, logging.INFO)
     logging.basicConfig(
         level=level,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     logging.getLogger("werkzeug").setLevel(max(level, logging.WARNING))
+    _quiet_noisy_loggers()
 
 
 def build_app() -> flask.Flask:
@@ -94,6 +125,9 @@ def build_app() -> flask.Flask:
     # Telemetry must be configured before the Flask app is created so its
     # instrumentation can wrap it.
     telemetry_on = configure_telemetry(config.app_insights_connection_string)
+    # Re-assert the quiet levels: configure_azure_monitor attaches the logging
+    # handler that would otherwise re-export the SDK's own chatty INFO records.
+    _quiet_noisy_loggers()
 
     org_store = CosmosOrgStore(
         endpoint=config.cosmos_endpoint,

@@ -139,6 +139,13 @@ This separation is the core security design — keep it intact:
   builds the app via `flask.Flask(__name__)` (resolved at call time, after
   `build_app` calls `configure_telemetry`) — not `from flask import Flask`, which
   would capture the un-instrumented class and drop incoming "requests" telemetry.
+  Because `configure_azure_monitor` collects the **root** logger, the chatty
+  Azure SDK loggers (esp. `azure.monitor.opentelemetry.exporter`'s own
+  "Transmission succeeded…" and `azure.core` HTTP logs) would be re-exported as
+  telemetry — a feedback loop that floods ingestion and drops the app's own
+  logs. `app._quiet_noisy_loggers()` forces `_NOISY_LOGGERS` (azure*, urllib3,
+  opentelemetry) to WARNING (re-applied after `configure_telemetry`); keep app
+  loggers at INFO and never lower those noisy ones back down.
 - **No persisted user data:** the participant flow keeps only what it needs in
   the signed session cookie (`user_login`, invite state) and discards the GitHub
   user token immediately after reading the login.
