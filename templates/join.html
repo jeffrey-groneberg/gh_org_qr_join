@@ -25,6 +25,7 @@
           <strong>{{ user }}</strong>, your account is already part of
           <strong>{{ org.name }}</strong>. Nothing else to do.
         </p>
+        {% if copilot %}<p class="hint">GitHub Copilot access is included.</p>{% endif %}
         <a class="btn" href="https://github.com/{{ org.slug }}" target="_blank" rel="noopener">
           Open the organization
         </a>
@@ -36,6 +37,7 @@
           <strong>{{ org.name }}</strong>. Accept it to finish joining — there's
           also an email from GitHub.
         </p>
+        {% if copilot %}<p class="hint">GitHub Copilot access is included — it activates once you accept.</p>{% endif %}
         <a class="btn" href="{{ accept_url }}" target="_blank" rel="noopener">
           Accept invitation
         </a>

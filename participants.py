@@ -60,6 +60,7 @@ def org_page(slug: str):
         user=session.get("user_login"),
         invited=invited,
         invite_state=session.get("invite_state"),
+        copilot=invited and session.get("invite_copilot"),
         accept_url=f"https://github.com/orgs/{slug}/invitation",
         error=session.pop("flash_error", None),
     )
@@ -140,6 +141,7 @@ def join(slug: str):
         session["invited"] = True
         session["invited_slug"] = slug
         session["invite_state"] = result.state or "pending"
+        session["invite_copilot"] = result.copilot == "assigned"
     elif result.outcome == "not_installed":
         logger.warning("Join blocked: app not installed (org=%s)", slug)
         session["flash_error"] = (

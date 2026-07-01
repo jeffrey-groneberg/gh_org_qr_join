@@ -49,6 +49,7 @@ Your app will be deployed as:
 
    Create/Update your GitHub App at https://github.com/settings/apps with:
      Permissions:  Organization -> Members = Read & write
+                   Organization -> GitHub Copilot Business = Read & write
      Events:       Installation
      Webhook URL:  ${APP_URL}/webhooks/github
      Webhook secret (copy this exact value):

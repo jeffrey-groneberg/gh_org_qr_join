@@ -113,8 +113,11 @@ This separation is the core security design — keep it intact:
    injected principal header and matches `ENTRA_ADMIN_ROLE`.
 2. **GitHub OAuth App** — identifies the participant; requested `scope` is
    **empty** on purpose (we only need their login).
-3. **GitHub App (*Members: write*)** — installed **per org** (not an owner), it
-   mints short-lived per-org **installation tokens** to send invitations. Credentials in env: `GITHUB_APP_ID`,
+3. **GitHub App (*Members* + *GitHub Copilot Business*: write)** — installed
+   **per org** (not an owner), it mints short-lived per-org **installation
+   tokens** to send invitations and best-effort assign the invitee a Copilot seat
+   (`org.get_copilot().add_seats([login])`; failures never fail the invite).
+   Credentials in env: `GITHUB_APP_ID`,
    `GITHUB_APP_PRIVATE_KEY` (PEM), `GITHUB_WEBHOOK_SECRET`. Invitations are only
    allowed for orgs in the DB, and the token is scoped to the single installed
    org — so it can't invite into an arbitrary org. Installing the app fires an

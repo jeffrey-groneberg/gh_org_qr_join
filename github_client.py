@@ -5,9 +5,11 @@ Two independent GitHub integrations live behind a single injected interface:
 * **OAuth App** — identifies a *participant* (empty scope). Used to turn an OAuth
   ``code`` into the user's login. Backed by PyGithub's ``ApplicationOAuth``.
 * **GitHub App** — sends org **invitations** with least privilege
-  (*Members: write*), per-org, via short-lived **installation** tokens. Backed by
-  PyGithub's ``Auth.AppAuth`` → ``GithubIntegration`` → ``AppInstallationAuth``
-  (PyGithub mints and auto-refreshes the ~1 h installation token).
+  (*Members: write*), per-org, via short-lived **installation** tokens, and
+  best-effort assigns a **Copilot** seat to the invitee (needs the org's
+  *GitHub Copilot Business* permission). Backed by PyGithub's ``Auth.AppAuth`` →
+  ``GithubIntegration`` → ``AppInstallationAuth`` (PyGithub mints and
+  auto-refreshes the ~1 h installation token).
 
 ``GitHubClient`` is the abstraction the Flask blueprints depend on; the app is
 wired with a concrete ``PyGithubClient`` from the composition root, so route
@@ -45,6 +47,7 @@ class InviteResult(NamedTuple):
 
     outcome: str  # "invited" | "already_member" | "not_installed" | "rate_limited" | "error"
     state: str = ""  # "pending" | "active" | ""
+    copilot: str = ""  # "assigned" | "" — best-effort Copilot seat outcome
 
 
 @runtime_checkable
@@ -193,7 +196,7 @@ class PyGithubClient:
         try:
             org.invite_user(user=user, role=_MEMBER_ROLE)
             logger.info("Invitation created (org=%s, state=pending)", slug)
-            return InviteResult("invited", "pending")
+            return InviteResult("invited", "pending", self._try_assign_copilot(org, slug, login))
         except RateLimitExceededException:
             logger.warning("Invite rate limited (org=%s)", slug)
             return InviteResult("rate_limited")
@@ -201,6 +204,28 @@ class PyGithubClient:
             # 422 = already a member / already invited: report a friendly "in".
             if exc.status == 422 or self.is_active_member(slug, login):
                 logger.info("Join no-op: already a member (org=%s)", slug)
-                return InviteResult("already_member", "active")
+                return InviteResult(
+                    "already_member", "active", self._try_assign_copilot(org, slug, login)
+                )
             logger.warning("Invite failed (org=%s, status=%s)", slug, exc.status)
             return InviteResult("error")
+
+    def _try_assign_copilot(self, org, slug: str, login: str) -> str:
+        """Best-effort: reserve a Copilot seat for the (pending) member.
+
+        Returns ``"assigned"`` on success, else ``""`` — never raises. A pending
+        invitee gets a reserved seat that activates when they accept the invite.
+        Orgs without a Copilot Business/Enterprise plan (no free seats, or that
+        haven't granted the App the *GitHub Copilot Business* permission) simply
+        skip this; the invitation still stands.
+        """
+        try:
+            org.get_copilot().add_seats([login])
+            logger.info("Copilot seat assigned (org=%s)", slug)
+            return "assigned"
+        except GithubException as exc:
+            logger.info("Copilot seat not assigned (org=%s, status=%s)", slug, exc.status)
+            return ""
+        except Exception:  # noqa: BLE001 — never let a seat error fail the invite
+            logger.info("Copilot seat not assigned (org=%s)", slug, exc_info=True)
+            return ""
