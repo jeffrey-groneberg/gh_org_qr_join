@@ -1,27 +1,27 @@
 # QR Org Join
 
 A small Flask app that lets people self-join a GitHub organization by scanning a
-per-org QR code. An **admin** manages the list of joinable orgs through an
-Entra-protected CRUD UI and projects each org's QR code. A **participant** scans
-the code, signs in with GitHub (identity only), and is invited into that org.
+per-org QR code. Organizations are onboarded automatically when the **GitHub App**
+is installed on them; an **admin** views them in an Entra-protected console,
+manages each org's join passcode, and projects its QR code. A **participant**
+scans the code, signs in with GitHub (identity only), enters the join passcode,
+and is invited into that org.
 
 Member management — accepting invitations, roles, removals — stays on
 GitHub.com. This app only creates the invitation.
 
-Orgs may be deleted on GitHub over time. When you **add** an org it is validated
-against GitHub first — it is only added if the GitHub App is installed on it (so
-it can send invitations); a non-existent org, or one without the app installed,
-is rejected with an explanation. From the admin list, **Check** re-validates any
-org on demand and reports one of: the app is installed and can invite (OK), the
-app is not installed (not installed), or the org no longer exists (missing) — in
-which case you're prompted to remove it from the list.
+Installing the GitHub App on an org **auto-onboards** it (via the `installation`
+webhook); uninstalling **removes** it. From the console, **Check** re-validates an
+org against GitHub and reports one of: the app is installed and can invite (OK),
+the app is not installed (not installed), or the org no longer exists (missing).
+**Remove** deletes a stale entry (e.g. if an uninstall webhook was missed).
 
 ## How it works
 
-1. The admin signs in (Entra ID, via App Service Easy Auth) and adds an org
-   (its GitHub login/slug) to the list, then opens its QR code and **join
-   passcode**. (Installing the GitHub App on an org can also auto-onboard it via
-   webhook.)
+1. An admin installs the **GitHub App** on an org — the `installation` webhook
+   auto-onboards it with a generated **join passcode** and records who installed
+   it. In the Entra-protected console the admin opens the org's QR code and
+   passcode.
 2. A participant scans the QR code, landing on `/orgs/<slug>`.
 3. They click **Sign in with GitHub** — an OAuth App with *empty scope* tells us
    only their login.
@@ -34,7 +34,7 @@ which case you're prompted to remove it from the list.
 
 | Credential | Purpose |
 | --- | --- |
-| Entra ID app role (via Easy Auth) | Authorizes the admin for the CRUD UI |
+| Entra ID app role (via Easy Auth) | Authorizes the admin for the console |
 | GitHub OAuth App (empty scope) | Identifies the participant |
 | GitHub App (*Members: write*) | Creates every org invitation via per-org installation tokens |
 
@@ -195,8 +195,8 @@ make the app an owner) and fires the `installation` webhook, which
 ### Step 11 — Verify
 - `<app_url>/healthz` → `{"status":"ok"}`.
 - `/admin` redirects you through Entra sign-in; after consent you see the org
-  list. Add (or confirm) an org, open its QR, scan it, and complete the GitHub
-  join flow.
+  list. Confirm the org you installed in Step 10 appears, open its QR, scan it,
+  and complete the GitHub join flow.
 
 > **Custom / regional hostname:** all URLs derive from the resolved name. If
 > Azure assigns a different hostname (custom domain or unique-default-hostname),
@@ -265,9 +265,9 @@ Then set the repo's `production` environment values (Settings → Environments):
 - `github_client.py` — GitHub App client (OAuth identity + per-org invitations)
 - `webhooks.py` — HMAC-verified `installation` webhook (auto-onboard/remove orgs)
 - `telemetry.py` — Azure Monitor / Application Insights wiring (config-driven)
-- `admin.py` — org-list CRUD + QR page + org check
+- `admin.py` — admin console: passcode management, QR page, org check + remove
 - `participants.py` — GitHub OAuth identity + join
-- `templates/` — server-rendered Jinja (GitHub dark theme)
+- `templates/` — server-rendered Jinja (Microsoft Fluent / M365 Copilot theme)
 - `infra/` — Terraform: App Service (VNet-integrated), private Cosmos + Key Vault,
   private endpoints/DNS, Entra app (single user-run local-state layer)
 - `.github/workflows/deploy-app.yml` — app-code deploy (OIDC, independent of infra)
