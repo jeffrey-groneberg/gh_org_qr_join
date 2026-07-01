@@ -114,7 +114,26 @@ variable "github_client_secret" {
 }
 
 variable "github_invite_token" {
-  description = "GitHub classic PAT with admin:org scope, used to create invitations for all orgs."
+  description = "DEPRECATED (unused after GitHub App migration). Retained only to avoid breaking existing tfvars; remove once no state references it."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+# --- GitHub App (least-privilege, per-org invitations) ---------------------
+variable "github_app_id" {
+  description = "GitHub App ID (or client ID) used to mint installation tokens for invitations."
+  type        = string
+}
+
+variable "github_app_private_key" {
+  description = "GitHub App RSA private key (PEM contents)."
+  type        = string
+  sensitive   = true
+}
+
+variable "github_webhook_secret" {
+  description = "Shared secret used to verify inbound GitHub App webhooks (HMAC-SHA256)."
   type        = string
   sensitive   = true
 }

@@ -25,11 +25,13 @@ for them. Validate changes by building the app factory (below).
   ```bash
   FLASK_SECRET_KEY=x APP_BASE_URL=http://127.0.0.1:8000 \
   COSMOS_ENDPOINT=https://dummy.documents.azure.com:443/ \
-  GITHUB_CLIENT_ID=x GITHUB_CLIENT_SECRET=x GITHUB_INVITE_TOKEN=x ADMIN_DEV_BYPASS=1 \
+  GITHUB_CLIENT_ID=x GITHUB_CLIENT_SECRET=x \
+  GITHUB_APP_ID=1 GITHUB_APP_PRIVATE_KEY=x GITHUB_WEBHOOK_SECRET=x ADMIN_DEV_BYPASS=1 \
   python -c "import app; from config import Config; \
-    a=app.create_app(Config(), object()); print(sorted(str(r) for r in a.url_map.iter_rules()))"
+    a=app.create_app(Config(), object(), object()); print(sorted(str(r) for r in a.url_map.iter_rules()))"
   ```
-  (`object()` stands in for any `OrgStore`; provide a real fake to exercise routes.)
+  (`create_app(config, org_store, github_client)`; pass fakes for the store and
+  the `GitHubClient` to exercise routes.)
 - The venv (`.venv`) targets Python 3.12 (matching the Azure runtime); type
   hints use `from __future__ import annotations`.
 - Container: `Dockerfile` runs `gunicorn --bind 0.0.0.0:${PORT} app:app` as a
@@ -78,7 +80,16 @@ from the **composition root** — reading any one file is not enough:
   `admin_required` decodes it and checks for the Entra **app role**. Participants
   are never sent through this flow. `ADMIN_DEV_BYPASS=1` fakes an admin locally.
 - `participants.py` — the public flow: GitHub OAuth (identity only) + `/join`,
-  scoped to a single org `slug` looked up from the DB.
+  scoped to a single org `slug` looked up from the DB. Uses the injected
+  `GitHubClient` (`current_app.config["GITHUB"]`) for OAuth + invitations.
+- `github_client.py` — `GitHubClient` **Protocol** + `PyGithubClient` (all GitHub
+  access via **PyGithub**, one SDK): OAuth `ApplicationOAuth` for participant
+  identity, and `Auth.AppAuth`→`GithubIntegration`→`AppInstallationAuth` for
+  least-privilege per-org invitations (PyGithub mints/refreshes installation
+  tokens). Injected via `current_app.config["GITHUB"]`.
+- `webhooks.py` — `POST /webhooks/github`: HMAC-SHA256-verified (stdlib `hmac`,
+  GitHub's `X-Hub-Signature-256`) `installation` handler that auto-onboards
+  (`created`) / removes (`deleted`) orgs. Public + `csrf.exempt`.
 - `admin.py` — the Easy Auth-protected org-list CRUD plus the projectable QR
   page.
 - `templates/` — server-rendered Jinja, all extending `base.html` (GitHub dark
@@ -102,10 +113,14 @@ This separation is the core security design — keep it intact:
    injected principal header and matches `ENTRA_ADMIN_ROLE`.
 2. **GitHub OAuth App** — identifies the participant; requested `scope` is
    **empty** on purpose (we only need their login).
-3. **GitHub classic PAT (`admin:org`)** — a single token, held in env
-   (`GITHUB_INVITE_TOKEN`), used for **every** org invitation. No per-org secret
-   is ever stored in the database. Invitations are only allowed for orgs that
-   exist in the DB, so the broad PAT can't invite into an arbitrary org.
+3. **GitHub App (*Members: write*)** — replaces the old classic PAT. Installed
+   **per org** (not an owner), it mints short-lived per-org **installation
+   tokens** to send invitations. Credentials in env: `GITHUB_APP_ID`,
+   `GITHUB_APP_PRIVATE_KEY` (PEM), `GITHUB_WEBHOOK_SECRET`. Invitations are only
+   allowed for orgs in the DB, and the token is scoped to the single installed
+   org — so it can't invite into an arbitrary org. Installing the app fires an
+   `installation` webhook (`/webhooks/github`, HMAC-verified) that auto-onboards
+   the org.
 
 ## Conventions specific to this codebase
 

@@ -43,6 +43,8 @@ class OrgStore(Protocol):
 
     def set_passcode(self, slug: str, passcode: str) -> Org | None: ...
 
+    def set_installation_id(self, slug: str, installation_id: int | None) -> Org | None: ...
+
     def delete(self, slug: str) -> bool: ...
 
 
@@ -115,6 +117,15 @@ class CosmosOrgStore:
         except CosmosResourceNotFoundError:
             return None
         item["passcode"] = passcode
+        self._container.replace_item(item=slug, body=item)
+        return Org.from_item(item)
+
+    def set_installation_id(self, slug: str, installation_id: int | None) -> Org | None:
+        try:
+            item = self._container.read_item(item=slug, partition_key=slug)
+        except CosmosResourceNotFoundError:
+            return None
+        item["installation_id"] = installation_id
         self._container.replace_item(item=slug, body=item)
         return Org.from_item(item)
 

@@ -170,7 +170,11 @@ resource "azurerm_linux_web_app" "this" {
 
     GITHUB_CLIENT_ID     = var.github_client_id
     GITHUB_CLIENT_SECRET = var.github_client_secret
-    GITHUB_INVITE_TOKEN  = var.github_invite_token
+
+    # GitHub App (replaces the classic PAT): least-privilege per-org invites.
+    GITHUB_APP_ID          = var.github_app_id
+    GITHUB_APP_PRIVATE_KEY = var.github_app_private_key
+    GITHUB_WEBHOOK_SECRET  = var.github_webhook_secret
 
     ENTRA_ADMIN_ROLE = var.admin_app_role_value
 

@@ -32,6 +32,7 @@ class Org:
     slug: str
     display_name: str = ""
     passcode: str = ""
+    installation_id: int | None = None
     created_at: str = field(default_factory=_now_iso)
 
     @property
@@ -50,6 +51,7 @@ class Org:
             "slug": self.slug,
             "display_name": self.display_name,
             "passcode": self.passcode,
+            "installation_id": self.installation_id,
             "created_at": self.created_at,
         }
 
@@ -59,6 +61,7 @@ class Org:
             slug=item["slug"],
             display_name=item.get("display_name", ""),
             passcode=item.get("passcode", ""),
+            installation_id=item.get("installation_id"),
             created_at=item.get("created_at", ""),
         )
 

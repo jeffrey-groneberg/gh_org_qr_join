@@ -13,7 +13,9 @@ tenant_id = "00000000-0000-0000-0000-000000000000"
 # When auto-naming, fill these in after ./deploy.sh prints the callback URL.
 github_client_id     = "Iv1xxxxxxxxxxxxxxxxx"
 github_client_secret = "replace-me"
-github_invite_token  = "ghp_replace_me"
+github_app_id          = "123456"
+github_app_private_key = "-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+github_webhook_secret  = "replace-with-a-long-random-webhook-secret"
 
 # Optionally assign the admin app role to specific users at deploy time.
 # admin_principal_object_ids = ["<user-object-id>"]

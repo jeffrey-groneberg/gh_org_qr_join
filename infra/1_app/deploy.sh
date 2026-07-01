@@ -48,9 +48,11 @@ Your app will be deployed as:
      Authorization callback URL: ${APP_URL}/callback
 
 2) Put these into terraform.tfvars:
-     github_client_id     = "<from the OAuth App>"
-     github_client_secret = "<from the OAuth App>"
-     github_invite_token  = "<classic PAT with admin:org>"
+     github_client_id       = "<from the OAuth App>"
+     github_client_secret   = "<from the OAuth App>"
+     github_app_id          = "<GitHub App ID>"
+     github_app_private_key = "<PEM contents of the App private key>"
+     github_webhook_secret  = "<GitHub App webhook secret>"
 ------------------------------------------------------------------------
 EOF
 

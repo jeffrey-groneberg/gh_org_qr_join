@@ -24,7 +24,6 @@ from flask import (
 )
 
 from auth import admin_required, current_admin
-from github import check_org_status
 from models import Org
 from org_store import OrgExistsError
 
@@ -39,6 +38,10 @@ def _config():
 
 def _store():
     return current_app.config["ORG_STORE"]
+
+
+def _github():
+    return current_app.config["GITHUB"]
 
 
 def _get_org_or_404(slug: str) -> Org:
@@ -92,8 +95,8 @@ def create_org():
         session["admin_error"] = f"Organization '{slug}' is already in the list."
         return redirect(url_for("admin.list_orgs"))
 
-    # Validate against GitHub: only add an org the invite PAT can actually manage.
-    result = check_org_status(_config().invite_token, slug)
+    # Validate against GitHub: only add an org the GitHub App is installed on.
+    result = _github().org_status(slug)
     if result.status != "ok":
         if result.status == "missing":
             session["admin_error"] = (
@@ -163,9 +166,9 @@ def delete_org(slug: str):
 @admin_bp.post("/admin/orgs/<slug>/check")
 @admin_required
 def check_org(slug: str):
-    """Validate an org against GitHub via the invite PAT and report the result."""
+    """Validate an org against GitHub via the GitHub App installation and report the result."""
     org = _get_org_or_404(slug)
-    result = check_org_status(_config().invite_token, org.slug)
+    result = _github().org_status(org.slug)
     session["check_result"] = {
         "slug": org.slug,
         "name": org.name,

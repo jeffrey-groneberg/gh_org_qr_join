@@ -26,16 +26,20 @@ from flask_wtf import CSRFProtect
 from admin import admin_bp
 from auth import auth_bp
 from config import Config
+from github_client import GitHubClient, PyGithubClient
 from participants import participants_bp
 from org_store import CosmosOrgStore, OrgStore
 from telemetry import configure_telemetry
+from webhooks import webhooks_bp
 
 logger = logging.getLogger(__name__)
 
 csrf = CSRFProtect()
 
 
-def create_app(config: Config, org_store: OrgStore) -> flask.Flask:
+def create_app(
+    config: Config, org_store: OrgStore, github_client: GitHubClient
+) -> flask.Flask:
     """Build the Flask app from injected dependencies.
 
     Note: the app is created via ``flask.Flask`` (resolved at call time) rather
@@ -47,6 +51,7 @@ def create_app(config: Config, org_store: OrgStore) -> flask.Flask:
     app = flask.Flask(__name__)
     app.config["APP_CONFIG"] = config
     app.config["ORG_STORE"] = org_store
+    app.config["GITHUB"] = github_client
     app.config["SECRET_KEY"] = config.secret_key
     app.config.update(
         SESSION_COOKIE_HTTPONLY=True,
@@ -61,6 +66,10 @@ def create_app(config: Config, org_store: OrgStore) -> flask.Flask:
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(participants_bp)
+    app.register_blueprint(webhooks_bp)
+    # The GitHub webhook is a signed server-to-server POST (HMAC-verified), not a
+    # browser form — exempt it from CSRF.
+    csrf.exempt(webhooks_bp)
 
     @app.get("/")
     def index():
@@ -135,7 +144,15 @@ def build_app() -> flask.Flask:
         container=config.cosmos_container,
     )
 
-    app = create_app(config, org_store)
+    github_client = PyGithubClient(
+        oauth_client_id=config.github_client_id,
+        oauth_client_secret=config.github_client_secret,
+        app_id=config.github_app_id,
+        app_private_key=config.github_app_private_key,
+        redirect_uri=config.github_redirect_uri,
+    )
+
+    app = create_app(config, org_store, github_client)
     logger.info("QR Org Join started (telemetry=%s)", "on" if telemetry_on else "off")
     return app
 

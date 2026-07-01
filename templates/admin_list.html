@@ -14,7 +14,7 @@
   {% if notice %}<div class="notice" role="status">{{ notice }}</div>{% endif %}
 
   {% if check_result %}
-    {% set cr_class = {'ok': 'notice', 'no_access': 'warn', 'missing': 'alert', 'error': 'alert'}[check_result.status] %}
+    {% set cr_class = {'ok': 'notice', 'not_installed': 'warn', 'missing': 'alert', 'error': 'alert'}[check_result.status] %}
     <div class="{{ cr_class }} check-banner" role="status">
       <span><strong>{{ check_result.name }}</strong> — {{ check_result.detail }}</span>
       {% if check_result.status == 'missing' %}
@@ -41,7 +41,7 @@
               <code>{{ org.slug }}</code>
               {% if check_result and check_result.slug == org.slug %}
                 <span class="badge {{ check_result.status }}">
-                  {{ {'ok': 'OK', 'no_access': 'no access', 'missing': 'missing', 'error': 'error'}[check_result.status] }}
+                  {{ {'ok': 'OK', 'not_installed': 'not installed', 'missing': 'missing', 'error': 'error'}[check_result.status] }}
                 </span>
               {% endif %}
             </td>

@@ -40,7 +40,9 @@ env:
   TF_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
   TF_VAR_github_client_id: ${{ secrets.TF_GITHUB_CLIENT_ID }}
   TF_VAR_github_client_secret: ${{ secrets.TF_GITHUB_CLIENT_SECRET }}
-  TF_VAR_github_invite_token: ${{ secrets.TF_GITHUB_INVITE_TOKEN }}
+  TF_VAR_github_app_id: ${{ secrets.TF_GITHUB_APP_ID }}
+  TF_VAR_github_app_private_key: ${{ secrets.TF_GITHUB_APP_PRIVATE_KEY }}
+  TF_VAR_github_webhook_secret: ${{ secrets.TF_GITHUB_WEBHOOK_SECRET }}
   # Name of the infra identity created by 0_bootstrap (not secret). Needed so
   # 1_app can read it; defaults differ per environment, so pass it explicitly.
   TF_VAR_infra_identity_name: ${{ vars.INFRA_IDENTITY_NAME }}

@@ -2,20 +2,19 @@
 
 A participant reaches ``/orgs/<slug>`` by scanning that org's QR code. They:
   1. Sign in with GitHub (OAuth App, empty scope) so we learn their login.
-  2. Click "Join {org}", which creates an org invitation using the shared
-     classic PAT (admin:org).
+  2. Click "Join {org}", which creates an org invitation via the GitHub App's
+     per-org installation token (least privilege: *Members: write*).
   3. Accept the invitation on GitHub to finish joining.
 
-Only orgs that exist in the database can be joined, so the broadly-scoped PAT
-can never be used to invite into an arbitrary org.
+Only orgs that exist in the database can be joined, and invitations are sent
+with an installation token scoped to that single org.
 """
 
 from __future__ import annotations
 
+import logging
 import secrets
-from urllib.parse import urlencode
 
-import requests
 from flask import (
     Blueprint,
     abort,
@@ -27,22 +26,11 @@ from flask import (
     url_for,
 )
 
-import logging
-
 from models import Org
 
 participants_bp = Blueprint("participants", __name__)
 
 logger = logging.getLogger(__name__)
-
-GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
-GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
-GITHUB_API_URL = "https://api.github.com"
-GITHUB_API_VERSION = "2022-11-28"
-HTTP_TIMEOUT = (5, 10)
-
-# Shared connection-pooled HTTP session for all GitHub calls.
-_http = requests.Session()
 
 
 def _config():
@@ -53,32 +41,15 @@ def _store():
     return current_app.config["ORG_STORE"]
 
 
+def _github():
+    return current_app.config["GITHUB"]
+
+
 def _get_org_or_404(slug: str) -> Org:
     org = _store().get(slug)
     if org is None:
         abort(404)
     return org
-
-
-def _is_active_member(token: str, slug: str, login: str) -> bool:
-    """True if ``login`` is already an active member of the org.
-
-    Used to turn a 403 from the invite call (e.g. an owner trying to "join" their
-    own org) into a friendly "already a member" result instead of an error.
-    """
-    try:
-        resp = _http.get(
-            f"{GITHUB_API_URL}/orgs/{slug}/memberships/{login}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
-            timeout=HTTP_TIMEOUT,
-        )
-    except requests.RequestException:
-        return False
-    return resp.status_code == 200 and resp.json().get("state") == "active"
 
 
 @participants_bp.get("/orgs/<slug>")
@@ -101,25 +72,16 @@ def org_page(slug: str):
 @participants_bp.get("/orgs/<slug>/login")
 def login(slug: str):
     """Start the GitHub OAuth web flow (identity only) for this org."""
-    config = _config()
     _get_org_or_404(slug)
     state = secrets.token_urlsafe(32)
     session["oauth_state"] = state
     session["join_slug"] = slug
-    params = {
-        "client_id": config.github_client_id,
-        "redirect_uri": config.github_redirect_uri,
-        "state": state,
-        "scope": "",  # identity only — we never need any scope
-        "allow_signup": "true",
-    }
-    return redirect(f"{GITHUB_AUTHORIZE_URL}?{urlencode(params)}")
+    return redirect(_github().oauth_login_url(state))
 
 
 @participants_bp.get("/callback")
 def callback():
     """Handle the GitHub OAuth redirect: validate state, exchange code, get login."""
-    config = _config()
     slug = session.get("join_slug")
     back = url_for("participants.org_page", slug=slug) if slug else url_for("admin.list_orgs")
 
@@ -142,51 +104,9 @@ def callback():
         session["flash_error"] = "Sign-in failed (no code returned). Please retry."
         return redirect(back)
 
-    try:
-        token_resp = _http.post(
-            GITHUB_TOKEN_URL,
-            headers={"Accept": "application/json"},
-            data={
-                "client_id": config.github_client_id,
-                "client_secret": config.github_client_secret,
-                "code": code,
-                "redirect_uri": config.github_redirect_uri,
-            },
-            timeout=HTTP_TIMEOUT,
-        )
-        token_resp.raise_for_status()
-        user_token = token_resp.json().get("access_token")
-    except requests.RequestException:
-        logger.warning("GitHub token exchange failed (org=%s)", slug, exc_info=True)
-        session["flash_error"] = "Could not reach GitHub to sign you in. Please retry."
-        return redirect(back)
-
-    if not user_token:
-        logger.info("GitHub returned no access token (org=%s)", slug)
-        session["flash_error"] = "GitHub did not grant access. Please try again."
-        return redirect(back)
-
-    try:
-        user_resp = _http.get(
-            f"{GITHUB_API_URL}/user",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {user_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
-            timeout=HTTP_TIMEOUT,
-        )
-        user_resp.raise_for_status()
-        user_data = user_resp.json()
-    except requests.RequestException:
-        logger.warning("Failed to read GitHub identity (org=%s)", slug, exc_info=True)
-        session["flash_error"] = "Could not read your GitHub identity. Please retry."
-        return redirect(back)
-
-    login_name = user_data.get("login")
+    login_name = _github().exchange_code_for_login(code, returned_state)
     if not login_name:
-        logger.warning("GitHub identity response missing login (org=%s)", slug)
-        session["flash_error"] = "GitHub identity was incomplete. Please retry."
+        session["flash_error"] = "Could not sign you in with GitHub. Please retry."
         return redirect(back)
 
     session["user_login"] = login_name
@@ -200,8 +120,7 @@ def callback():
 
 @participants_bp.post("/orgs/<slug>/join")
 def join(slug: str):
-    """Create the org invitation for the signed-in user via the shared PAT."""
-    config = _config()
+    """Create the org invitation for the signed-in user via the GitHub App."""
     org = _get_org_or_404(slug)
     login_name = session.get("user_login")
     if not login_name:
@@ -219,53 +138,22 @@ def join(slug: str):
         session["flash_error"] = "That passcode is not correct. Please check and try again."
         return redirect(url_for("participants.org_page", slug=slug))
 
-    try:
-        resp = _http.put(
-            f"{GITHUB_API_URL}/orgs/{slug}/memberships/{login_name}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {config.invite_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
-            # New members always join as "member"; org admins are promoted on
-            # GitHub.com, not here.
-            json={"role": "member"},
-            timeout=HTTP_TIMEOUT,
-        )
-    except requests.RequestException:
-        logger.warning("Invite request to GitHub failed (org=%s)", slug, exc_info=True)
-        session["flash_error"] = "Could not reach GitHub to send your invite. Please retry."
-        return redirect(url_for("participants.org_page", slug=slug))
+    result = _github().invite_member(slug, login_name)
 
-    if resp.status_code == 200:
-        state = resp.json().get("state", "pending")
+    if result.outcome in ("invited", "already_member"):
         session["invited"] = True
         session["invited_slug"] = slug
-        session["invite_state"] = state
-        logger.info("Invitation created (org=%s, state=%s)", slug, state)
-    elif resp.status_code == 403:
-        # A 403 also occurs when the signed-in user is already a member/owner
-        # (GitHub won't let them set their own membership). Detect that and show
-        # a friendly "already in" message instead of an authorization error.
-        if _is_active_member(config.invite_token, slug, login_name):
-            session["invited"] = True
-            session["invited_slug"] = slug
-            session["invite_state"] = "active"
-            logger.info("Join no-op: already an active member (org=%s)", slug)
-        else:
-            logger.warning("Invite forbidden by GitHub (org=%s, status=403)", slug)
-            session["flash_error"] = (
-                "The invite service is not authorized for this organization. "
-                "Please notify the organizer."
-            )
-    elif resp.status_code == 422:
-        logger.warning("Invite unprocessable (org=%s, status=422)", slug)
+        session["invite_state"] = result.state or "pending"
+    elif result.outcome == "not_installed":
+        logger.warning("Join blocked: app not installed (org=%s)", slug)
         session["flash_error"] = (
-            "GitHub could not process the invite right now (it may be rate "
-            "limited). Please try again in a little while."
+            "Joining isn't available for this organization yet. Please notify the organizer."
+        )
+    elif result.outcome == "rate_limited":
+        session["flash_error"] = (
+            "GitHub is rate limiting invitations right now. Please try again in a little while."
         )
     else:
-        logger.warning("Invite failed (org=%s, status=%s)", slug, resp.status_code)
         session["flash_error"] = "Sending your invite failed. Please try again."
 
     return redirect(url_for("participants.org_page", slug=slug))

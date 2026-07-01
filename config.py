@@ -10,8 +10,9 @@ Identity is split across two independent systems:
   * **GitHub OAuth App** identifies the *participant* (empty scope) so we learn
     their login before inviting them.
 
-A single classic PAT (``admin:org``) performs every org invitation, and orgs are
-stored in Cosmos DB accessed via managed identity, so no data-store or per-org
+A **GitHub App** (least privilege, *Members: write*) performs every org
+invitation using short-lived per-org installation tokens, and orgs are stored in
+Cosmos DB accessed via managed identity, so no data-store or long-lived org
 secret is ever held by the app.
 
 This module is the single place that reads ``os.environ``; everything else
@@ -65,8 +66,14 @@ class Config:
         self.github_client_id = _require_env("GITHUB_CLIENT_ID")
         self.github_client_secret = _require_env("GITHUB_CLIENT_SECRET")
 
-        # --- GitHub classic PAT (admin:org) used for every invitation -------
-        self.invite_token = _require_env("GITHUB_INVITE_TOKEN")
+        # --- GitHub App (least-privilege, per-org invitations) --------------
+        # The App authenticates with its client/app id + RSA private key (PEM),
+        # mints short-lived installation tokens, and sends invitations with only
+        # "Members: write". Replaces the broad classic PAT.
+        self.github_app_id = _require_env("GITHUB_APP_ID")
+        self.github_app_private_key = _require_env("GITHUB_APP_PRIVATE_KEY")
+        # Shared secret used to verify inbound GitHub App webhooks (HMAC-SHA256).
+        self.github_webhook_secret = _require_env("GITHUB_WEBHOOK_SECRET")
 
         # --- Admin authorization (via Easy Auth app role) -------------------
         # The Entra app role that grants admin access (case-insensitive match).

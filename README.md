@@ -9,22 +9,23 @@ Member management — accepting invitations, roles, removals — stays on
 GitHub.com. This app only creates the invitation.
 
 Orgs may be deleted on GitHub over time. When you **add** an org it is validated
-against GitHub first — it is only added if the invite PAT can actually manage it
-(send invitations); a non-existent org, one the PAT can't access, or one that
-can't be verified is rejected with an explanation. From the admin list, **Check**
-re-validates any org on demand and reports one of: it exists and the PAT can
-invite (OK), it exists but the PAT can't manage it (no access), or it no longer
-exists (missing) — in which case you're prompted to remove it from the list.
+against GitHub first — it is only added if the GitHub App is installed on it (so
+it can send invitations); a non-existent org, or one without the app installed,
+is rejected with an explanation. From the admin list, **Check** re-validates any
+org on demand and reports one of: the app is installed and can invite (OK), the
+app is not installed (not installed), or the org no longer exists (missing) — in
+which case you're prompted to remove it from the list.
 
 ## How it works
 
 1. The admin signs in (Entra ID, via App Service Easy Auth) and adds an org
-   (its GitHub login/slug) to the list, then opens its QR code.
+   (its GitHub login/slug) to the list, then opens its QR code. (Installing the
+   GitHub App on an org can also auto-onboard it via webhook.)
 2. A participant scans the QR code, landing on `/orgs/<slug>`.
 3. They click **Sign in with GitHub** — an OAuth App with *empty scope* tells us
    only their login.
-4. They click **Join** — the server creates an org invitation using a single
-   classic PAT (`admin:org`).
+4. They click **Join** — the server creates an org invitation using the GitHub
+   App's per-org installation token (least privilege: *Members: write*).
 5. They accept the invitation on GitHub to finish joining.
 
 ### Three credentials, each at minimum privilege
@@ -33,11 +34,12 @@ exists (missing) — in which case you're prompted to remove it from the list.
 | --- | --- |
 | Entra ID app role (via Easy Auth) | Authorizes the admin for the CRUD UI |
 | GitHub OAuth App (empty scope) | Identifies the participant |
-| GitHub classic PAT (`admin:org`) | Creates every org invitation |
+| GitHub App (*Members: write*) | Creates every org invitation via per-org installation tokens |
 
-No per-org secret is stored; each org is a small document (slug, display name,
-join passcode) in **Cosmos DB for NoSQL** (serverless), accessed
-passwordlessly via **managed identity** — the app holds no database keys.
+The GitHub App replaces the old broad classic PAT: it is **installed per org**
+(not an owner), holds only *Organization → Members: write*, and mints
+short-lived per-org installation tokens. Installing it on an org also fires an
+`installation` webhook that **auto-onboards** that org (see below).
 
 ## Run locally
 
@@ -85,10 +87,19 @@ you. (First apply the **`infra/0_bootstrap`** layer once — see
 [CI/CD](#cicd-github-actions-oidc--no-stored-secrets) — which creates the
 resource group, remote state, and CI identity.)
 
-### 1. Create the invite PAT (classic, `admin:org`)
-At <https://github.com/settings/tokens> → **Generate new token (classic)** with
-the **`admin:org`** scope. The token owner must be an owner/admin of every org
-participants will join. If an org enforces SAML SSO, authorize the token for it.
+### 1. Create the GitHub App (for invitations)
+At <https://github.com/settings/apps> → **New GitHub App**:
+- **Permissions:** *Organization → Members* = **Read & write** (nothing else).
+- **Subscribe to events:** **Installation**.
+- **Webhook:** Active; **URL** = `{APP_BASE_URL}/webhooks/github`; set a **Webhook
+  secret** (a long random string).
+- Generate a **private key** (downloads a `.pem`).
+
+Note the **App ID**, the **private key** (PEM contents), and the **webhook
+secret** — these become `github_app_id`, `github_app_private_key`, and
+`github_webhook_secret`. Then **Install** the app on each org participants will
+join (you must be an org owner to install it; installing it does *not* make the
+app an owner — it only grants *Members: write*).
 
 ### 2. Seed Terraform variables
 ```bash
@@ -216,7 +227,9 @@ create two **Environments** — `production` (app deploys) and `production-infra
 | Secret | `AZURE_SUBSCRIPTION_ID` | your subscription ID |
 | Secret | `TF_GITHUB_CLIENT_ID` | GitHub OAuth App client ID |
 | Secret | `TF_GITHUB_CLIENT_SECRET` | GitHub OAuth App client secret |
-| Secret | `TF_GITHUB_INVITE_TOKEN` | GitHub `admin:org` PAT |
+| Secret | `TF_GITHUB_APP_ID` | GitHub App ID |
+| Secret | `TF_GITHUB_APP_PRIVATE_KEY` | GitHub App private key (PEM contents) |
+| Secret | `TF_GITHUB_WEBHOOK_SECRET` | GitHub App webhook secret |
 
 > The infra identity is an **owner** of the Entra admin app registration (set in
 > `1_app/entra.tf`), which lets it manage that app without a directory-wide role.
