@@ -158,12 +158,5 @@ def build_app() -> flask.Flask:
     return app
 
 
-# WSGI entry point for `gunicorn app:app` and `python app.py`.
+# WSGI entry point for `gunicorn app:app`.
 app = build_app()
-
-
-if __name__ == "__main__":
-    import os
-
-    port = int(os.environ.get("PORT", "8000"))
-    app.run(host="0.0.0.0", port=port)

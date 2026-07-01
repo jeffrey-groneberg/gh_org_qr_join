@@ -6,8 +6,9 @@
 # the GitHub OAuth App's callback URL and the GitHub App's webhook URL can only
 # be known after Terraform picks the name. GitHub Apps/OAuth Apps cannot be
 # created via API/Terraform (UI-only), so this script:
-#   1. materialises ONLY the unique name (no Azure resources created),
-#   2. prints the exact URLs to configure your GitHub OAuth App / GitHub App,
+#   1. materialises only random values (the unique name + webhook secret; no
+#      Azure resources are created),
+#   2. prints the exact URLs + webhook secret to configure your GitHub Apps,
 #   3. waits for you to fill in the GitHub credentials,
 #   4. runs the full apply,
 #   5. prints the command to deploy the application code.
@@ -23,11 +24,15 @@ cd "$(dirname "$0")"
 echo "==> terraform init"
 terraform init -input=false >/dev/null
 
-echo "==> Resolving the unique app name (no Azure resources created yet)"
-terraform apply -target=random_string.suffix -auto-approve -input=false >/dev/null
+echo "==> Resolving the unique app name + webhook secret (no Azure resources yet)"
+terraform apply \
+  -target=random_string.suffix \
+  -target=random_password.webhook_secret \
+  -auto-approve -input=false >/dev/null
 
 APP_NAME="$(terraform output -raw app_name)"
 APP_URL="$(terraform output -raw app_url)"
+WEBHOOK_SECRET="$(terraform output -raw github_webhook_secret)"
 
 cat <<EOF
 
@@ -45,7 +50,9 @@ Your app will be deployed as:
    Create/Update your GitHub App at https://github.com/settings/apps with:
      Permissions:  Organization -> Members = Read & write
      Events:       Installation
-     Webhook URL:  ${APP_URL}/webhooks/github   (set a long random Webhook secret)
+     Webhook URL:  ${APP_URL}/webhooks/github
+     Webhook secret (copy this exact value):
+       ${WEBHOOK_SECRET}
      Generate a private key (.pem).
 
 2) Put these into terraform.tfvars:
@@ -53,7 +60,6 @@ Your app will be deployed as:
      github_client_secret   = "<from the OAuth App>"
      github_app_id          = "<GitHub App ID>"
      github_app_private_key = "<PEM contents of the App private key>"
-     github_webhook_secret  = "<GitHub App webhook secret>"
 ------------------------------------------------------------------------
 EOF
 

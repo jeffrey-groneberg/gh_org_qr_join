@@ -11,31 +11,23 @@ acceptance, roles, and removals all happen on GitHub.com.
 There is no automated test suite or linter configured; do not invent commands
 for them. Validate changes by building the app factory (below).
 
-- Local run: install deps into the venv, load env vars, then start Flask:
-  ```bash
-  pip install -r requirements.txt
-  cp .env.example .env   # then fill in values
-  export ADMIN_DEV_BYPASS=1   # treat local user as admin (no Easy Auth locally)
-  set -a; . ./.env; set +a
-  python app.py          # or: flask --app app run --debug --port 8000
-  ```
-  `app.py` exposes the WSGI callable `app` (so `gunicorn app:app` works).
 - Smoke-test the factory without a server or Cosmos (inject a fake store from
   outside — the app has no test/env awareness):
   ```bash
   FLASK_SECRET_KEY=x APP_BASE_URL=http://127.0.0.1:8000 \
   COSMOS_ENDPOINT=https://dummy.documents.azure.com:443/ \
   GITHUB_CLIENT_ID=x GITHUB_CLIENT_SECRET=x \
-  GITHUB_APP_ID=1 GITHUB_APP_PRIVATE_KEY=x GITHUB_WEBHOOK_SECRET=x ADMIN_DEV_BYPASS=1 \
-  python -c "import app; from config import Config; \
+  GITHUB_APP_ID=1 GITHUB_APP_PRIVATE_KEY=x GITHUB_WEBHOOK_SECRET=x \
+  .venv/bin/python -c "import app; from config import Config; \
     a=app.create_app(Config(), object(), object()); print(sorted(str(r) for r in a.url_map.iter_rules()))"
   ```
   (`create_app(config, org_store, github_client)`; pass fakes for the store and
-  the `GitHubClient` to exercise routes.)
+  the `GitHubClient` to exercise routes.) `app.py` exposes the WSGI callable
+  `app` (so `gunicorn app:app` works). There is no local dev server.
 - The venv (`.venv`) targets Python 3.12 (matching the Azure runtime); type
-  hints use `from __future__ import annotations`. All config is via env vars —
-  see `.env.example`. (The Azure deploy uses App Service's built-in Python
-  runtime via Oryx.)
+  hints use `from __future__ import annotations`. All config is via env vars,
+  injected by App Service as app settings (Key Vault references for secrets).
+  (The Azure deploy uses App Service's built-in Python runtime via Oryx.)
 - Deploy: a **single** Terraform layer in `infra/`, run by a human locally with
   `az login` and **local state**. It provisions the resource group, a VNet with
   App Service regional integration, a **private** Cosmos DB (serverless) and Key
@@ -75,7 +67,7 @@ from the **composition root** — reading any one file is not enough:
   Easy Auth (configured to allow unauthenticated requests) signs the admin in at
   the platform level and injects claims as the `X-MS-CLIENT-PRINCIPAL` header;
   `admin_required` decodes it and checks for the Entra **app role**. Participants
-  are never sent through this flow. `ADMIN_DEV_BYPASS=1` fakes an admin locally.
+  are never sent through this flow.
 - `participants.py` — the public flow: GitHub OAuth (identity only) + `/join`,
   scoped to a single org `slug` looked up from the DB. Uses the injected
   `GitHubClient` (`current_app.config["GITHUB"]`) for OAuth + invitations.
@@ -155,7 +147,7 @@ This separation is the core security design — keep it intact:
   client secrets) and keep PII (GitHub logins) to DEBUG — INFO logs use org
   `slug` + status only. `telemetry.configure_telemetry()` enables Azure Monitor
   (Application Insights) only when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set;
-  it's a no-op locally. `configure_azure_monitor` auto-instruments Flask,
+  it's a no-op when unset. `configure_azure_monitor` auto-instruments Flask,
   `requests`, and the `logging` module, so plain `logger` calls reach App Insights.
   Flask's instrumentation patches the `flask.Flask` attribute, so `create_app`
   builds the app via `flask.Flask(__name__)` (resolved at call time, after
@@ -177,4 +169,4 @@ This separation is the core security design — keep it intact:
   (see the `--bg/--card/--accent` CSS variables in `templates/`). Match this
   style for new pages rather than adding a CSS framework.
 - **Cookies:** `SESSION_COOKIE_SECURE` is derived from whether `APP_BASE_URL` is
-  HTTPS, so local `http://127.0.0.1` testing still works.
+  HTTPS.

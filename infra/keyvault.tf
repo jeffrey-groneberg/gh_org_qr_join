@@ -57,7 +57,7 @@ resource "azurerm_key_vault_secret" "github_app_private_key" {
 
 resource "azurerm_key_vault_secret" "github_webhook_secret" {
   name         = "github-webhook-secret"
-  value        = var.github_webhook_secret
+  value        = random_password.webhook_secret.result
   key_vault_id = azurerm_key_vault.this.id
   depends_on   = [azurerm_role_assignment.operator_kv_secrets_officer]
 }

@@ -81,12 +81,6 @@ variable "github_app_private_key" {
   sensitive   = true
 }
 
-variable "github_webhook_secret" {
-  description = "Shared secret used to verify inbound GitHub App webhooks (HMAC-SHA256)."
-  type        = string
-  sensitive   = true
-}
-
 # --- Optional access grants (assign in the portal otherwise) ---------------
 variable "admin_principal_object_ids" {
   description = "Object IDs of users to grant the admin app role."

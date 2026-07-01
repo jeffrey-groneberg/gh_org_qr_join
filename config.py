@@ -30,13 +30,9 @@ def _require_env(name: str) -> str:
     if not value:
         raise RuntimeError(
             f"Missing required environment variable: {name}. "
-            "See .env.example for the full list."
+            "See the README for the full list of required settings."
         )
     return value
-
-
-def _bool_env(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 class Config:
@@ -80,9 +76,6 @@ class Config:
         self.entra_admin_role = (
             os.environ.get("ENTRA_ADMIN_ROLE", "admin").strip() or "admin"
         )
-        # Local-dev escape hatch: treat the local user as an admin when there is
-        # no Easy Auth in front of the app. Never enable in production.
-        self.admin_dev_bypass = _bool_env("ADMIN_DEV_BYPASS")
 
         # --- Observability ---------------------------------------------------
         self.log_level = os.environ.get("LOG_LEVEL", "INFO").strip().upper() or "INFO"

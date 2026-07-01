@@ -11,9 +11,6 @@ their identity into every request as headers:
 Admin authorization is decided by an Entra **app role** (default ``admin``)
 present in those claims. The app never sees client secrets — Easy Auth owns the
 OIDC flow at ``/.auth/login/aad`` and ``/.auth/logout``.
-
-For local development without App Service, set ``ADMIN_DEV_BYPASS=1`` to treat
-the local user as an admin.
 """
 
 from __future__ import annotations
@@ -64,16 +61,12 @@ def _claim_value(principal: dict, types: tuple[str, ...]) -> str | None:
 
 
 def current_admin() -> dict | None:
-    """Identity of the signed-in admin (or a dev stub), else None.
+    """Identity of the signed-in admin, else None.
 
     Returns ``{"name": str, "roles": list[str]}`` when a principal is present.
     """
-    config = current_app.config["APP_CONFIG"]
-
     principal = _decode_principal()
     if principal is None:
-        if config.admin_dev_bypass:
-            return {"name": "dev-admin", "roles": [config.entra_admin_role]}
         return None
 
     roles = [

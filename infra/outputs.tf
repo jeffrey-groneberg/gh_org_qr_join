@@ -54,7 +54,13 @@ output "cosmosdb_account_name" {
 }
 
 output "cosmosdb_endpoint" {
-  description = "Cosmos DB endpoint (set as COSMOS_ENDPOINT for local dev)."
+  description = "Cosmos DB endpoint (COSMOS_ENDPOINT app setting)."
   value       = azurerm_cosmosdb_account.this.endpoint
+}
+
+output "github_webhook_secret" {
+  description = "Generated GitHub App webhook secret — paste into the App's webhook config."
+  value       = random_password.webhook_secret.result
+  sensitive   = true
 }
 

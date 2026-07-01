@@ -118,8 +118,8 @@ resource "azurerm_cosmosdb_sql_role_assignment" "app" {
   scope               = azurerm_cosmosdb_account.this.id
 }
 
-# Optional: grant developers the same data role so they can run the app locally
-# (requires network access to the private Cosmos endpoint, e.g. via VPN/Bastion).
+# Optional: grant a user direct Cosmos data-plane access (e.g. break-glass
+# debugging via the portal/VNet; requires network access to the private endpoint).
 resource "azurerm_cosmosdb_sql_role_assignment" "devs" {
   for_each = toset(var.cosmos_data_principal_object_ids)
 
@@ -174,7 +174,7 @@ resource "azurerm_linux_web_app" "this" {
     # Build the app with Oryx during zip/Git deploy.
     SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
 
-    # --- Application configuration (see .env.example) -----------------------
+    # --- Application configuration -----------------------------------------
     # Secrets are Key Vault references, resolved by the app's UAMI over the
     # vault's private endpoint. Non-secret values are inline.
     FLASK_SECRET_KEY = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.flask_secret.versionless_id})"
@@ -226,5 +226,13 @@ resource "azurerm_linux_web_app" "this" {
 
 resource "random_password" "flask_secret" {
   length  = 64
+  special = false
+}
+
+# Webhook secret shared with the GitHub App. Generated here (so it's never a
+# manual input) and exposed via the `github_webhook_secret` output — paste that
+# value into the GitHub App's webhook config. The app reads it from Key Vault.
+resource "random_password" "webhook_secret" {
+  length  = 40
   special = false
 }
