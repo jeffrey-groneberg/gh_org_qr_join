@@ -1,9 +1,10 @@
-"""Admin org-list CRUD, gated behind Entra sign-in + the admin app role.
+"""Admin org list, gated behind Entra sign-in + the admin app role.
 
-This manages only the app's list of joinable orgs (slug + display name +
-passcode) and renders each org's QR code for projecting. Member management
-(invites, roles, removals) is intentionally left to GitHub.com. Persistence is
-provided by the injected ``OrgStore`` on ``current_app.config["ORG_STORE"]``.
+Orgs are onboarded automatically when the GitHub App is installed on them (see
+``webhooks.py``); this console lets an admin view that list, manage each org's
+join passcode, check installation status, remove a stale entry, and project a
+QR code. Member management (invites, roles, removals) is left to GitHub.com.
+Persistence is the injected ``OrgStore`` on ``current_app.config["ORG_STORE"]``.
 """
 
 from __future__ import annotations
@@ -18,14 +19,12 @@ from flask import (
     current_app,
     redirect,
     render_template,
-    request,
     session,
     url_for,
 )
 
 from auth import admin_required, current_admin
 from models import Org
-from org_store import OrgExistsError
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -67,7 +66,7 @@ def _qr_svg(target: str, scale: int = 10) -> str:
 @admin_bp.get("/admin")
 @admin_required
 def list_orgs():
-    """List registered orgs with the add form and per-org actions."""
+    """List onboarded orgs with search/sort and per-org actions."""
     admin = current_admin()
     return render_template(
         "admin_list.html",
@@ -77,50 +76,6 @@ def list_orgs():
         notice=session.pop("admin_notice", None),
         check_result=session.pop("check_result", None),
     )
-
-
-@admin_bp.post("/admin/orgs")
-@admin_required
-def create_org():
-    """Register a new org in the app's list."""
-    slug = Org.normalize_slug(request.form.get("slug", ""))
-    display_name = request.form.get("display_name", "").strip()
-
-    if not Org.is_valid_slug(slug):
-        session["admin_error"] = "Enter a valid GitHub organization login (e.g. my-org)."
-        return redirect(url_for("admin.list_orgs"))
-
-    # Reject duplicates before hitting the GitHub API.
-    if _store().get(slug) is not None:
-        session["admin_error"] = f"Organization '{slug}' is already in the list."
-        return redirect(url_for("admin.list_orgs"))
-
-    # Validate against GitHub: only add an org the GitHub App is installed on.
-    result = _github().org_status(slug)
-    if result.status != "ok":
-        if result.status == "missing":
-            session["admin_error"] = (
-                f"'{slug}' was not found on GitHub. Double-check the organization login."
-            )
-        else:
-            session["admin_error"] = f"Cannot add '{slug}': {result.detail}"
-        logger.info("Rejected add of org '%s' (status=%s)", slug, result.status)
-        return redirect(url_for("admin.list_orgs"))
-
-    org = Org(
-        slug=slug,
-        display_name=display_name or slug,
-        passcode=Org.generate_passcode(),
-    )
-    try:
-        _store().add(org)
-    except OrgExistsError:
-        session["admin_error"] = f"Organization '{slug}' is already in the list."
-        return redirect(url_for("admin.list_orgs"))
-
-    session["admin_notice"] = f"Added '{org.name}' (join passcode: {org.passcode})."
-    logger.info("Org added (slug=%s)", org.slug)
-    return redirect(url_for("admin.list_orgs"))
 
 
 @admin_bp.post("/admin/orgs/<slug>/passcode")
@@ -137,24 +92,10 @@ def regenerate_passcode(slug: str):
     return redirect(url_for("admin.list_orgs"))
 
 
-@admin_bp.post("/admin/orgs/<slug>")
-@admin_required
-def update_org(slug: str):
-    """Rename an org (slug is immutable)."""
-    _get_org_or_404(slug)
-    display_name = request.form.get("display_name", "").strip() or slug
-    org = _store().update(slug, display_name=display_name)
-    if org is None:
-        abort(404)
-    session["admin_notice"] = f"Updated '{org.name}'."
-    logger.info("Org updated (slug=%s)", org.slug)
-    return redirect(url_for("admin.list_orgs"))
-
-
 @admin_bp.post("/admin/orgs/<slug>/delete")
 @admin_required
 def delete_org(slug: str):
-    """Remove an org from the app's list (does not touch GitHub)."""
+    """Remove a stale org from the list (e.g. a missed uninstall webhook)."""
     org = _get_org_or_404(slug)
     name = org.name
     _store().delete(slug)

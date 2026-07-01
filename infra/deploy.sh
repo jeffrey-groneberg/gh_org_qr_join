@@ -1,25 +1,20 @@
 #!/usr/bin/env bash
 #
-# Two-phase deploy for the QR Org Join *application* layer (infra/1_app).
-#
-# Prerequisite: the bootstrap layer (infra/0_bootstrap) must already be applied
-# (it creates the resource group, the Terraform remote-state Storage Account, and
-# the infra CI identity). Run that once first:
-#   cd ../0_bootstrap && terraform init && terraform apply
+# Two-phase deploy for the QR Org Join app (single Terraform layer in infra/).
 #
 # Because the App Service hostname is auto-generated (app_name is left empty),
-# the GitHub OAuth App's callback URL can only be known after Terraform picks the
-# name. GitHub OAuth Apps cannot be created via API/Terraform (UI-only), so this
-# script:
+# the GitHub OAuth App's callback URL and the GitHub App's webhook URL can only
+# be known after Terraform picks the name. GitHub Apps/OAuth Apps cannot be
+# created via API/Terraform (UI-only), so this script:
 #   1. materialises ONLY the unique name (no Azure resources created),
-#   2. prints the exact URLs to configure your GitHub OAuth App,
+#   2. prints the exact URLs to configure your GitHub OAuth App / GitHub App,
 #   3. waits for you to fill in the GitHub credentials,
 #   4. runs the full apply,
 #   5. prints the command to deploy the application code.
 #
-# Prerequisites: `az login`, Terraform installed, and terraform.tfvars created
-# from terraform.tfvars.example (you can leave the github_* values blank until
-# step 3 below).
+# Prerequisites: `az login` with sufficient roles (see README "Required roles"),
+# Terraform installed, and terraform.tfvars created from terraform.tfvars.example
+# (you can leave the github_* values blank until step 3 below).
 #
 # Usage:  ./deploy.sh
 set -euo pipefail
@@ -46,6 +41,12 @@ Your app will be deployed as:
    with:
      Homepage URL:               ${APP_URL}
      Authorization callback URL: ${APP_URL}/callback
+
+   Create/Update your GitHub App at https://github.com/settings/apps with:
+     Permissions:  Organization -> Members = Read & write
+     Events:       Installation
+     Webhook URL:  ${APP_URL}/webhooks/github   (set a long random Webhook secret)
+     Generate a private key (.pem).
 
 2) Put these into terraform.tfvars:
      github_client_id       = "<from the OAuth App>"

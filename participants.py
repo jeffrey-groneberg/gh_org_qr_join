@@ -33,10 +33,6 @@ participants_bp = Blueprint("participants", __name__)
 logger = logging.getLogger(__name__)
 
 
-def _config():
-    return current_app.config["APP_CONFIG"]
-
-
 def _store():
     return current_app.config["ORG_STORE"]
 

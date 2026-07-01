@@ -7,9 +7,8 @@ data "azuread_client_config" "current" {}
 resource "random_uuid" "admin_role" {}
 
 resource "azuread_application" "admin" {
-  display_name     = "${local.app_name}-admin"
-  owners           = [data.azuread_client_config.current.object_id, data.azurerm_user_assigned_identity.infra.principal_id]
-  sign_in_audience = "AzureADMyOrg"
+  display_name = "${local.app_name}-admin"
+  owners       = [data.azuread_client_config.current.object_id]
 
   web {
     redirect_uris = ["${local.app_url}/.auth/login/aad/callback"]
@@ -23,15 +22,12 @@ resource "azuread_application" "admin" {
     allowed_member_types = ["User"]
     description          = "Administrators who can manage the joinable organization list."
     display_name         = "Admin"
-    enabled              = true
     id                   = random_uuid.admin_role.result
-    value                = var.admin_app_role_value
+    value                = local.admin_role_value
   }
 
-  # Owners are set once (the human operator + the infra CI identity) and then
-  # left alone. Without this, the list would be recomputed from whoever runs
-  # Terraform (data.azuread_client_config.current), so a CI run would try to
-  # drop the human owner — a runner-dependent flip-flop.
+  # Owners are set once (the human operator) and then left alone: without this the
+  # list would be recomputed from whoever runs Terraform, causing owner churn.
   lifecycle {
     ignore_changes = [owners]
   }
@@ -39,10 +35,9 @@ resource "azuread_application" "admin" {
 
 resource "azuread_service_principal" "admin" {
   client_id = azuread_application.admin.client_id
-  owners    = [data.azuread_client_config.current.object_id, data.azurerm_user_assigned_identity.infra.principal_id]
+  owners    = [data.azuread_client_config.current.object_id]
 
-  # See azuread_application.admin: freeze owners so a CI run doesn't recompute
-  # (and drop) the human owner.
+  # See azuread_application.admin: freeze owners to avoid churn across runs.
   lifecycle {
     ignore_changes = [owners]
   }

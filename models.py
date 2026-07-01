@@ -21,7 +21,7 @@ _PASSCODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 PASSCODE_LENGTH = 8
 
 
-def _now_iso() -> str:
+def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -32,8 +32,9 @@ class Org:
     slug: str
     display_name: str = ""
     passcode: str = ""
-    installation_id: int | None = None
-    created_at: str = field(default_factory=_now_iso)
+    installed_by: str = ""
+    installed_at: str = ""
+    created_at: str = field(default_factory=now_iso)
 
     @property
     def id(self) -> str:
@@ -51,7 +52,8 @@ class Org:
             "slug": self.slug,
             "display_name": self.display_name,
             "passcode": self.passcode,
-            "installation_id": self.installation_id,
+            "installed_by": self.installed_by,
+            "installed_at": self.installed_at,
             "created_at": self.created_at,
         }
 
@@ -61,7 +63,8 @@ class Org:
             slug=item["slug"],
             display_name=item.get("display_name", ""),
             passcode=item.get("passcode", ""),
-            installation_id=item.get("installation_id"),
+            installed_by=item.get("installed_by", ""),
+            installed_at=item.get("installed_at", ""),
             created_at=item.get("created_at", ""),
         )
 

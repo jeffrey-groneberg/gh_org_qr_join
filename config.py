@@ -69,7 +69,7 @@ class Config:
         # --- GitHub App (least-privilege, per-org invitations) --------------
         # The App authenticates with its client/app id + RSA private key (PEM),
         # mints short-lived installation tokens, and sends invitations with only
-        # "Members: write". Replaces the broad classic PAT.
+        # "Members: write".
         self.github_app_id = _require_env("GITHUB_APP_ID")
         self.github_app_private_key = _require_env("GITHUB_APP_PRIVATE_KEY")
         # Shared secret used to verify inbound GitHub App webhooks (HMAC-SHA256).

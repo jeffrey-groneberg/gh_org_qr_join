@@ -4,7 +4,7 @@ GitHub POSTs an ``installation`` event to ``/webhooks/github`` whenever the App
 is installed on, or removed from, an organization. We verify the HMAC-SHA256
 signature (GitHub's documented ``X-Hub-Signature-256`` scheme — the only thing
 standing between us and forged "installed" events), then create or delete the
-corresponding org in the store, recording its installation id.
+corresponding org in the store.
 
 This route is public (Easy Auth allows anonymous) and CSRF-exempt: it's a
 server-to-server POST authenticated by the signature, not a browser form.
@@ -18,7 +18,7 @@ import logging
 
 from flask import Blueprint, current_app, request
 
-from models import Org
+from models import Org, now_iso
 from org_store import OrgExistsError
 
 webhooks_bp = Blueprint("webhooks", __name__)
@@ -73,7 +73,8 @@ def github_webhook():
         logger.warning("Webhook installation with invalid org login")
         return ("", 204)
 
-    installation_id = installation.get("id")
+    # The user who performed the install/uninstall on GitHub.
+    installer = (payload.get("sender") or {}).get("login", "")
     store = _store()
 
     # 3) React idempotently (GitHub retries deliveries).
@@ -86,15 +87,17 @@ def github_webhook():
                         slug=slug,
                         display_name=slug,
                         passcode=Org.generate_passcode(),
-                        installation_id=installation_id,
+                        installed_by=installer,
+                        installed_at=now_iso(),
                     )
                 )
                 logger.info("Org auto-onboarded via install (slug=%s)", slug)
             except OrgExistsError:
-                store.set_installation_id(slug, installation_id)
-        else:
-            store.set_installation_id(slug, installation_id)
-            logger.info("Install webhook refreshed existing org (slug=%s)", slug)
+                pass  # created concurrently by another delivery — fine
+        elif action == "created":
+            # Org pre-existed (e.g. a re-install): record who installed it.
+            store.set_installation_info(slug, installer, now_iso())
+            logger.info("Recorded installer for existing org (slug=%s)", slug)
 
     elif action in ("deleted", "suspend"):
         if store.delete(slug):

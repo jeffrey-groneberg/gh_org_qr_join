@@ -33,36 +33,33 @@ for them. Validate changes by building the app factory (below).
   (`create_app(config, org_store, github_client)`; pass fakes for the store and
   the `GitHubClient` to exercise routes.)
 - The venv (`.venv`) targets Python 3.12 (matching the Azure runtime); type
-  hints use `from __future__ import annotations`.
-- Container: `Dockerfile` runs `gunicorn --bind 0.0.0.0:${PORT} app:app` as a
-  non-root user — **local dev / portability only**. The Azure deploy uses App
-  Service's built-in Python runtime (Oryx), not this image. All config is via
-  env vars — see `.env.example`.
-- Deploy: Terraform is split into two layers. `infra/0_bootstrap/` (day-0, local
-  state, human-run) creates the resource group, the remote-state Storage Account,
-  and the privileged GitHub OIDC **infra** identity. `infra/1_app/` (remote state,
-  run by the infra workflow) provisions App Service + Entra Easy Auth + Cosmos DB
-  (serverless) + Application Insights + the least-privilege **app-deploy**
-  identity, reading the RG and infra identity from `0_bootstrap` via data sources.
-  Validate either layer with `terraform fmt -check && terraform validate` (run
-  `terraform init` first; `1_app` needs the backend, so use `-backend=false` for
-  an offline validate).
-- CI/CD: `.github/workflows/deploy-app.yml` (app code → App Service via OIDC) and
-  `.github/workflows/infra.yml` (`infra/1_app` Terraform plan/apply via OIDC,
-  gated by the `production-infra` environment). No publish profile or client
-  secret is stored — both use federated managed-identity credentials.
+  hints use `from __future__ import annotations`. All config is via env vars —
+  see `.env.example`. (The Azure deploy uses App Service's built-in Python
+  runtime via Oryx.)
+- Deploy: a **single** Terraform layer in `infra/`, run by a human locally with
+  `az login` and **local state**. It provisions the resource group, a VNet with
+  App Service regional integration, a **private** Cosmos DB (serverless) and Key
+  Vault (both reached over private endpoints + private DNS zones), Application
+  Insights, and the Entra Easy Auth app. App secrets live in Key Vault and are
+  surfaced as `@Microsoft.KeyVault(...)` app-setting references resolved by the
+  app's user-assigned identity. The vault denies public traffic except
+  `operator_ip_cidr` so `terraform apply` can seed secrets. Validate offline with
+  `terraform init && terraform fmt -check && terraform validate`.
+- CI/CD: only `.github/workflows/deploy-app.yml` (app code → App Service via
+  OIDC, using a Website-Contributor identity separate from `infra/`). Infra is
+  applied by hand. No publish profile or client secret is stored.
 
 ## Architecture (the big picture)
 
 Blueprint-based Flask app. Dependency injection separates the **pure factory**
 from the **composition root** — reading any one file is not enough:
 
-- `app.py` — `create_app(config, org_store)` is a *pure factory*: it wires a
-  Flask app purely from its injected dependencies and knows nothing about the
-  environment or about testing. `build_app()` (the composition root, run at
-  module import for `gunicorn app:app`) constructs the real `Config`, telemetry,
-  and `CosmosOrgStore`, then calls `create_app`. Tests call `create_app` directly
-  with their own `OrgStore`.
+- `app.py` — `create_app(config, org_store, github_client)` is a *pure factory*:
+  it wires a Flask app purely from its injected dependencies and knows nothing
+  about the environment or about testing. `build_app()` (the composition root, run
+  at module import for `gunicorn app:app`) constructs the real `Config`, telemetry,
+  `CosmosOrgStore`, and `PyGithubClient`, then calls `create_app`. Tests call
+  `create_app` directly with their own `OrgStore` and `GitHubClient`.
 - `config.py` — the **only** module that reads `os.environ`. All configuration
   (including secrets, Cosmos, App Insights connection string) is read **once**
   into a `Config` object; `_require_env()` raises a clear startup error. Derived
@@ -89,20 +86,31 @@ from the **composition root** — reading any one file is not enough:
   tokens). Injected via `current_app.config["GITHUB"]`.
 - `webhooks.py` — `POST /webhooks/github`: HMAC-SHA256-verified (stdlib `hmac`,
   GitHub's `X-Hub-Signature-256`) `installation` handler that auto-onboards
-  (`created`) / removes (`deleted`) orgs. Public + `csrf.exempt`.
-- `admin.py` — the Easy Auth-protected org-list CRUD plus the projectable QR
-  page.
-- `templates/` — server-rendered Jinja, all extending `base.html` (GitHub dark
-  theme inline CSS).
-- `infra/0_bootstrap/` — Terraform (azurerm) day-0 layer: the app resource group,
-  the Terraform remote-state Storage Account/container, and the privileged GitHub
-  OIDC infra identity (UMI + federated credential + RBAC). Local state, human-run.
-- `infra/1_app/` — Terraform (azurerm + azuread) application layer: Linux App
-  Service Plan/Web App (system-assigned identity), Cosmos DB (serverless, key auth
-  disabled) + data-plane RBAC role assignment, Application Insights, the Entra app
-  registration whose **admin** app role is wired into Easy Auth, and the
-  least-privilege app-deploy OIDC identity. Remote state; RG + infra identity read
-  from `0_bootstrap` via data sources.
+  (`created`) / removes (`deleted`) orgs and records the installer login +
+  timestamp on the `Org`. Public + `csrf.exempt`.
+- `admin.py` — the Easy Auth-protected org console. Orgs are onboarded by the
+  install webhook (no manual add/rename); the admin can manage each org's join
+  passcode, check installation status, project a QR, and **Remove** a stale entry
+  (escape hatch for a missed uninstall webhook). The list has client-side
+  search / installer-filter / sort.
+- `templates/` — server-rendered Jinja, all extending `base.html` (Microsoft
+  Fluent / M365 Copilot inline CSS; shared styles + tokens live in `base.html`).
+- `infra/` — a single Terraform layer (azurerm + azuread), local state, human-run
+  with `az login`. Provisions: the resource group; a VNet with `snet-app`
+  (delegated `Microsoft.Web/serverFarms`, for App Service regional VNet
+  integration) and `snet-pe` (private endpoints); private DNS zones
+  (`privatelink.documents.azure.com`, `privatelink.vaultcore.azure.net`) + VNet
+  links; a **private** Cosmos DB (serverless, key auth disabled) + data-plane RBAC;
+  a **private** Key Vault (RBAC-authorized, public traffic denied except
+  `operator_ip_cidr`) holding all app secrets; private endpoints for Cosmos ("Sql")
+  and Key Vault ("vault"); Application Insights; and the Entra app registration
+  whose **admin** app role is wired into Easy Auth. The Web App uses a
+  **user-assigned identity** (for both Cosmos data-plane and Key Vault reference
+  resolution) and consumes secrets as `@Microsoft.KeyVault(...)` app settings.
+  Files: `main.tf`, `networking.tf`, `keyvault.tf`, `entra.tf`, plus
+  `variables.tf`/`outputs.tf`/`versions.tf`/`checks.tf`. Config is intentionally
+  minimal — `location`, `resource_group_name`, `app_name`, plus the unavoidable
+  credentials and `operator_ip_cidr`.
 
 ### Three credentials, each at minimum privilege
 
@@ -113,9 +121,8 @@ This separation is the core security design — keep it intact:
    injected principal header and matches `ENTRA_ADMIN_ROLE`.
 2. **GitHub OAuth App** — identifies the participant; requested `scope` is
    **empty** on purpose (we only need their login).
-3. **GitHub App (*Members: write*)** — replaces the old classic PAT. Installed
-   **per org** (not an owner), it mints short-lived per-org **installation
-   tokens** to send invitations. Credentials in env: `GITHUB_APP_ID`,
+3. **GitHub App (*Members: write*)** — installed **per org** (not an owner), it
+   mints short-lived per-org **installation tokens** to send invitations. Credentials in env: `GITHUB_APP_ID`,
    `GITHUB_APP_PRIVATE_KEY` (PEM), `GITHUB_WEBHOOK_SECRET`. Invitations are only
    allowed for orgs in the DB, and the token is scoped to the single installed
    org — so it can't invite into an arbitrary org. Installing the app fires an
@@ -133,11 +140,11 @@ This separation is the core security design — keep it intact:
 - **Config access in blueprints:** never read `os.environ` outside `config.py`.
   Inside a request, get config via the module-local `_config()` helper
   (`current_app.config["APP_CONFIG"]`) and the store via `current_app.config["ORG_STORE"]`.
-- **GitHub API calls:** use the module-level shared `requests.Session`
-  (connection pooling), always pass `timeout=HTTP_TIMEOUT` `(connect, read)`, and
-  send the `Accept: application/vnd.github+json` and
-  `X-GitHub-Api-Version: 2022-11-28` headers. Handle `requests.RequestException`
-  and branch on status codes (e.g. 200/403/422) with user-facing flash messages.
+- **GitHub API calls:** go through the injected `GitHubClient`
+  (`current_app.config["GITHUB"]`), backed by `PyGithubClient` in
+  `github_client.py` — never raw `requests`. Handle `github.GithubException`
+  (and subclasses `UnknownObjectException`, `RateLimitExceededException`),
+  branching on `.status` with user-facing flash messages.
 - **CSRF on every state-changing POST:** enforced app-wide by **Flask-WTF**
   (`CSRFProtect`, initialised in `create_app`); forms render the hidden field via
   `{{ csrf_token() }}`. No manual token plumbing per route. The OAuth `state` is

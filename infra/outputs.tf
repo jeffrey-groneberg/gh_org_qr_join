@@ -5,7 +5,7 @@ output "app_name" {
 
 output "resource_group_name" {
   description = "Resource group the app is deployed into."
-  value       = data.azurerm_resource_group.app.name
+  value       = azurerm_resource_group.this.name
 }
 
 output "app_url" {
@@ -40,7 +40,7 @@ output "admin_app_client_id" {
 
 output "admin_app_role_value" {
   description = "App role value that grants admin access (assign users to it)."
-  value       = var.admin_app_role_value
+  value       = local.admin_role_value
 }
 
 output "application_insights_name" {
@@ -58,26 +58,3 @@ output "cosmosdb_endpoint" {
   value       = azurerm_cosmosdb_account.this.endpoint
 }
 
-# --- GitHub Actions OIDC deployment (set these in the GitHub repo) ----------
-# These three are NOT secrets — store them as GitHub repository/environment
-# *variables* (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID) and pass
-# them to azure/login@v2. No client secret or publish profile is ever needed.
-output "github_deploy_client_id" {
-  description = "AZURE_CLIENT_ID — client ID of the user-assigned identity GitHub Actions assumes via OIDC."
-  value       = azurerm_user_assigned_identity.github_deploy.client_id
-}
-
-output "github_deploy_tenant_id" {
-  description = "AZURE_TENANT_ID — tenant the deploy identity lives in."
-  value       = data.azurerm_subscription.current.tenant_id
-}
-
-output "github_deploy_subscription_id" {
-  description = "AZURE_SUBSCRIPTION_ID — subscription the Web App is deployed into."
-  value       = data.azurerm_subscription.current.subscription_id
-}
-
-output "github_deploy_subject" {
-  description = "OIDC subject this identity trusts (must match the workflow's repo + environment)."
-  value       = azurerm_federated_identity_credential.github_deploy.subject
-}

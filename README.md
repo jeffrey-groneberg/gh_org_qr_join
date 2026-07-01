@@ -19,13 +19,15 @@ which case you're prompted to remove it from the list.
 ## How it works
 
 1. The admin signs in (Entra ID, via App Service Easy Auth) and adds an org
-   (its GitHub login/slug) to the list, then opens its QR code. (Installing the
-   GitHub App on an org can also auto-onboard it via webhook.)
+   (its GitHub login/slug) to the list, then opens its QR code and **join
+   passcode**. (Installing the GitHub App on an org can also auto-onboard it via
+   webhook.)
 2. A participant scans the QR code, landing on `/orgs/<slug>`.
 3. They click **Sign in with GitHub** — an OAuth App with *empty scope* tells us
    only their login.
-4. They click **Join** — the server creates an org invitation using the GitHub
-   App's per-org installation token (least privilege: *Members: write*).
+4. They enter the org's **join passcode** and click **Join** — the server
+   verifies the passcode, then creates an org invitation using the GitHub App's
+   per-org installation token (least privilege: *Members: write*).
 5. They accept the invitation on GitHub to finish joining.
 
 ### Three credentials, each at minimum privilege
@@ -36,10 +38,10 @@ which case you're prompted to remove it from the list.
 | GitHub OAuth App (empty scope) | Identifies the participant |
 | GitHub App (*Members: write*) | Creates every org invitation via per-org installation tokens |
 
-The GitHub App replaces the old broad classic PAT: it is **installed per org**
-(not an owner), holds only *Organization → Members: write*, and mints
-short-lived per-org installation tokens. Installing it on an org also fires an
-`installation` webhook that **auto-onboards** that org (see below).
+The GitHub App is **installed per org** (not an owner), holds only
+*Organization → Members: write*, and mints short-lived per-org installation
+tokens. Installing it on an org also fires an `installation` webhook that
+**auto-onboards** that org (see below).
 
 ## Run locally
 
@@ -55,202 +57,317 @@ set -a; . ./.env; set +a
 python app.py                   # http://127.0.0.1:8000
 ```
 
-You'll need a GitHub OAuth App (callback `http://127.0.0.1:8000/callback`), a
-classic PAT with `admin:org` for a test org you own, and a Cosmos DB account
-(`COSMOS_ENDPOINT`) on which your user has the **Cosmos DB Built-in Data
-Contributor** role — Terraform can grant it via `cosmos_data_principal_object_ids`.
+You'll need a GitHub OAuth App (callback `http://127.0.0.1:8000/callback`) for
+participant identity, a **GitHub App** (*Members: write*) installed on a test org
+you own for invitations (`GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` /
+`GITHUB_WEBHOOK_SECRET`), and a Cosmos DB account (`COSMOS_ENDPOINT`) on which
+your user has the **Cosmos DB Built-in Data Contributor** role — Terraform can
+grant it via `cosmos_data_principal_object_ids`.
 
 Logs go to stdout at `LOG_LEVEL` (default INFO). Application Insights stays off
 locally unless `APPLICATIONINSIGHTS_CONNECTION_STRING` is set.
 
 ## Deploy to Azure (step by step)
 
-Infrastructure lives in [`infra/`](infra/): a resource group, Linux App Service
-Plan (B1) + Web App (Python, gunicorn), all app settings, and the Entra app
-registration with an **admin** app role wired into App Service Easy Auth
-("allow unauthenticated" so participants pass through).
+Infrastructure lives in [`infra/`](infra/) as a **single Terraform layer** you
+run yourself (local state, `az login`): a resource group, Linux App Service Plan
+(**S1**) + Web App (Python, gunicorn), a **private Cosmos DB** and **Key Vault**
+(reached over private endpoints via VNet integration), Application Insights, and
+the Entra app registration with an **admin** app role wired into App Service Easy
+Auth ("allow unauthenticated" so participants pass through).
+
+All secrets live in Key Vault and are surfaced to the app as
+`@Microsoft.KeyVault(...)` references resolved by the app's managed identity over
+the vault's private endpoint. **Cosmos** has public network access **disabled**
+(reachable only via its private endpoint). **Key Vault** denies public traffic by
+default but allows your `operator_ip_cidr` (plus the `AzureServices` bypass) so
+Terraform can seed the secrets; the app still reads them over the private
+endpoint. Inbound to the app stays public (participants scan the QR; GitHub POSTs
+the webhook).
+
+### Required roles (before you start)
+
+Grant yourself these before applying:
+
+| Scope | Role |
+| --- | --- |
+| Subscription (or the target RG) | **Owner** — or **Contributor + User Access Administrator** |
+| Entra directory | **Application Administrator** (or Cloud Application Administrator) |
+| Key Vault (data plane) | **Key Vault Secrets Officer** (Terraform grants this during apply; your public IP must be in `operator_ip_cidr`) |
+| GitHub | Account **Developer settings** access; **Org owner** on each joinable org |
+
+> Verify quickly: `az role assignment list --assignee $(az ad signed-in-user show --query id -o tsv) --all -o table` should show Owner (or Contributor + User Access Administrator). Entra roles are visible under **Entra admin center → Roles and administrators**.
 
 ### Prerequisites
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) and
   [Terraform](https://developer.hashicorp.com/terraform/install) installed.
-- An Azure subscription where you can create resources and an Entra app
-  registration, plus rights to assign the app role (Application/Cloud App
-  Administrator, or have an admin do the role assignment).
-- Sign in: `az login` (Terraform uses this), and note your tenant ID
-  (`az account show --query tenantId -o tsv`).
+- The roles above.
 
 You do **not** need to invent an `app_name` — Terraform auto-generates a
-globally-unique `qr-org-join-<random>` name. Because the GitHub OAuth App
-callback depends on that name (and GitHub OAuth Apps can't be created via API),
-deployment is two-phase. The `infra/1_app/deploy.sh` helper runs both phases for
-you. (First apply the **`infra/0_bootstrap`** layer once — see
-[CI/CD](#cicd-github-actions-oidc--no-stored-secrets) — which creates the
-resource group, remote state, and CI identity.)
+globally-unique `qr-org-join-<random>` name. Deployment is **two-phase**: resolve
+the name first, configure GitHub with the real URLs, then apply everything.
+`infra/deploy.sh` automates this; the manual steps are spelled out below.
 
-### 1. Create the GitHub App (for invitations)
+### Step 1 — Sign in and select the subscription
+```bash
+az login
+az account set --subscription <subscription-id>
+az account show --query tenantId -o tsv   # -> tenant_id
+curl -s https://api.ipify.org; echo       # -> operator_ip_cidr (append /32)
+```
+
+### Step 2 — Seed Terraform variables
+```bash
+cd infra
+cp terraform.tfvars.example terraform.tfvars
+```
+Set `tenant_id` and `operator_ip_cidr` (`x.x.x.x/32`); leave `app_name` empty to
+auto-generate and the `github_*` values as placeholders for now. Optionally set
+`admin_principal_object_ids` to auto-assign yourself the admin role
+(`az ad signed-in-user show --query id -o tsv`).
+
+### Step 3 — Resolve the app name (phase 1, no resources yet)
+```bash
+terraform init
+terraform apply -target=random_string.suffix   # only writes a random string to state
+terraform output -raw app_url                   # e.g. https://qr-org-join-ab12cd.azurewebsites.net
+```
+This resolves the URL **before any Azure resource exists**. The hostname is
+deterministic (`https://<app_name>.azurewebsites.net`) and, once the random suffix
+is fixed in state, won't change on the full apply. Configure the GitHub OAuth App
+/ GitHub App (Steps 4–5) against this exact URL.
+*Roles: none beyond `az login` — no Azure resources are created here.* (Running
+`./deploy.sh` instead does this and pauses at the next step.)
+
+### Step 4 — Create the GitHub OAuth App (participant identity)
+At <https://github.com/settings/developers> → **New OAuth App**:
+- **Homepage URL:** `<app_url>`
+- **Authorization callback URL:** `<app_url>/callback`
+
+Copy the **client ID** and generate a **client secret** →
+`github_client_id` / `github_client_secret`. *Role: your own GitHub account.*
+
+### Step 5 — Create the GitHub App (invitations + webhook)
 At <https://github.com/settings/apps> → **New GitHub App**:
 - **Permissions:** *Organization → Members* = **Read & write** (nothing else).
 - **Subscribe to events:** **Installation**.
-- **Webhook:** Active; **URL** = `{APP_BASE_URL}/webhooks/github`; set a **Webhook
-  secret** (a long random string).
-- Generate a **private key** (downloads a `.pem`).
+- **Webhook:** Active; **URL** = `<app_url>/webhooks/github`; set a long random
+  **Webhook secret**.
+- **Generate a private key** (downloads a `.pem`).
 
-Note the **App ID**, the **private key** (PEM contents), and the **webhook
-secret** — these become `github_app_id`, `github_app_private_key`, and
-`github_webhook_secret`. Then **Install** the app on each org participants will
-join (you must be an org owner to install it; installing it does *not* make the
-app an owner — it only grants *Members: write*).
+Copy the **App ID**, **PEM contents**, and **webhook secret** →
+`github_app_id` / `github_app_private_key` / `github_webhook_secret`.
+*Role: your own GitHub account (installation comes later and needs org owner).*
 
-### 2. Seed Terraform variables
+### Step 6 — Fill in the GitHub values
+Paste the five `github_*` values from Steps 4–5 into `terraform.tfvars`.
+
+### Step 7 — Apply everything (phase 2)
 ```bash
-cd infra/1_app
-cp terraform.tfvars.example terraform.tfvars
+terraform apply           # or press Enter in ./deploy.sh
 ```
-Set `tenant_id` (leave `app_name` empty to auto-generate). You can leave the
-`github_*` values as placeholders for now — `deploy.sh` pauses for them once it
-knows the URL. Optionally set `admin_principal_object_ids` to auto-assign
-yourself the admin role (`az ad signed-in-user show --query id -o tsv`).
+Terraform creates, in dependency order (it resolves the order for you):
+1. Resource group, VNet + `snet-app`/`snet-pe`, private DNS zones + VNet links.
+2. Cosmos DB (private), Key Vault (public traffic denied except your IP), App
+   Insights.
+3. Entra app registration + service principal + client secret + any admin role
+   assignments.
+4. Role assignments — app identity → *Cosmos Data Contributor* + *Key Vault
+   Secrets User*; you → *Key Vault Secrets Officer*.
+5. Key Vault secrets — the app credentials from your tfvars plus the Easy Auth
+   client secret from step 3 — written over your allow-listed IP.
+6. Private endpoints (+ auto DNS records) for Cosmos and Key Vault.
+7. App Service (VNet-integrated) with the Key Vault-reference app settings.
 
-### 3. Deploy (two-phase, scripted)
-```bash
-./deploy.sh
-```
-The script:
-1. uses Terraform to materialise the unique name (no Azure resources yet) and
-   prints the exact **Homepage** and **callback** URLs;
-2. pauses while you create the GitHub OAuth App at
-   <https://github.com/settings/developers> with those URLs and paste its
-   client ID/secret (and the PAT) into `terraform.tfvars`;
-3. runs the full `terraform apply`;
-4. prints the `az webapp up` command to deploy the code.
+*Roles: **Owner** (or Contributor + User Access Administrator) for step 4's role
+assignments; **Application Administrator** for step 3's Entra objects; your IP in
+`operator_ip_cidr` for step 5's secret writes.*
 
-> Prefer to run it manually? Do
-> `terraform apply -target=random_string.suffix` → `terraform output -raw app_url`
-> to learn the URL, configure the OAuth App, fill in `terraform.tfvars`, then
-> `terraform apply`.
+> If the first apply fails writing a Key Vault secret with a 403, the
+> just-created *Secrets Officer* assignment usually hasn't propagated yet — wait
+> ~1 minute and re-run `terraform apply`. If it persists, re-check your current
+> outbound IP (VPN/proxy/NAT can change it) and update `operator_ip_cidr`.
 
-### 4. Deploy the application code
-From the repo root, using the name the script printed (or
-`terraform -chdir=infra output -raw app_name`):
+### Step 8 — Deploy the application code
+From the repo root, using the resolved name
+(`terraform -chdir=infra output -raw app_name`):
 ```bash
 az webapp up \
   --name <app_name> \
   --resource-group rg-qr-org-join \
   --runtime "PYTHON:3.12"
 ```
-This zips and uploads the code; App Service builds it with Oryx
-(`pip install -r requirements.txt`) and runs `gunicorn app:app`. The SQLite
-database is created automatically under the persistent `/home/data/` directory.
+App Service builds the source with Oryx (`pip install -r requirements.txt`) and
+runs `gunicorn app:app`. *Role: **Website Contributor** (or Contributor) on the
+Web App.* For repeatable CI deploys instead, see
+[CI/CD](#cicd-github-actions-oidc--no-stored-secrets).
 
-### 5. Grant admin access
+### Step 9 — Grant admin access
 If you didn't pass `admin_principal_object_ids`, assign users to the **admin**
 app role: Entra admin center → **Enterprise applications** → `<app_name>-admin`
-→ **Users and groups** → add users with the `admin_app_role_value` role.
+→ **Users and groups** → add users with the `admin` role. *Role: Application
+Administrator / Privileged Role Administrator (or an owner of the app).*
 
-### 6. Verify
+### Step 10 — Install the GitHub App on each org
+On the GitHub App's page → **Install App** → pick the org. *Requires **org
+owner** on that org.* Installing grants only *Members: write* (it does **not**
+make the app an owner) and fires the `installation` webhook, which
+**auto-onboards** the org into the list.
+
+### Step 11 — Verify
 - `<app_url>/healthz` → `{"status":"ok"}`.
 - `/admin` redirects you through Entra sign-in; after consent you see the org
-  list. Add an org, open its QR, scan it, and complete the GitHub join flow.
+  list. Add (or confirm) an org, open its QR, scan it, and complete the GitHub
+  join flow.
 
 > **Custom / regional hostname:** all URLs derive from the resolved name. If
 > Azure assigns a different hostname (custom domain or unique-default-hostname),
 > set `app_base_url = "https://<actual-host>"` in `terraform.tfvars`, re-apply,
-> and update the GitHub OAuth callback to match.
-
-> **Dockerfile note:** the Azure deploy uses App Service's built-in Python
-> runtime (Oryx), **not** the `Dockerfile`. The `Dockerfile` is kept only for
-> local development and portability (`docker run`); it plays no part in the
-> Terraform deployment.
+> and update the GitHub OAuth callback + GitHub App webhook URL to match.
 
 ## CI/CD (GitHub Actions, OIDC — no stored secrets)
 
-Two path-filtered workflows so app releases never redeploy infra:
+Infrastructure is **not** driven from CI — you apply `infra/` yourself with
+`az login` and local state. Only **app code** ships from GitHub Actions:
 
 - **`.github/workflows/deploy-app.yml`** — runs on pushes that touch app code
   (`**.py`, `templates/**`, `requirements.txt`). Logs in via GitHub **OIDC** and
-  ships the source to App Service (Oryx builds it). Uses a least-privilege
-  identity (**Website Contributor on the Web App only**).
-- **`.github/workflows/infra.yml`** — runs only on changes under `infra/1_app/**`.
-  Plans on PRs, applies on pushes to `main`, gated behind the
-  **`production-infra`** environment. Uses a separate, more-privileged identity.
+  ships the source to App Service (Oryx builds it). It authenticates with a
+  federated credential (no client secret / publish profile) against a
+  least-privilege identity — **Website Contributor on the Web App only**.
 
-Both authenticate with federated credentials (no client secret / publish
-profile).
-
-### Two Terraform layers (`infra/0_bootstrap`, `infra/1_app`)
-
-Infra is split so the pipeline's own identity isn't managed by the pipeline:
-
-- **`0_bootstrap`** (local state, run once by a human) — creates the application
-  resource group, the Terraform remote-state Storage Account + container, and the
-  privileged **infra CI identity** (UMI + federated credential + RBAC). This is
-  the day-0 seed; everything it makes must exist before CI can run.
-- **`1_app`** (remote state in that Storage Account, run by the infra workflow) —
-  the App Service, Cosmos, App Insights, the Entra admin app, and the
-  least-privilege **app-deploy identity**. It reads the resource group and infra
-  identity from `0_bootstrap` via data sources.
-
-From a fresh clone:
+This deploy identity is **separate from `infra/`**. Create it once (or reuse an
+existing one), grant it *Website Contributor* on the Web App, and add a GitHub
+OIDC **federated credential** whose subject matches this repo's `production`
+environment — otherwise `azure/login` fails even if the IDs are set:
 
 ```bash
-az login
+APP_NAME=$(terraform -chdir=infra output -raw app_name)
+RG=$(terraform -chdir=infra output -raw resource_group_name)
+REPO="jeffrey-groneberg/gh_org_qr_join"   # owner/name
 
-# Day 0 — seed (human, local state):
-cd infra/0_bootstrap
-terraform init && terraform apply
-terraform output            # note state account + identity values
+# 1. Identity for deploys (Contributor to create it).
+az identity create -g "$RG" -n "${APP_NAME}-deploy"
+CLIENT_ID=$(az identity show -g "$RG" -n "${APP_NAME}-deploy" --query clientId -o tsv)
+PRINCIPAL_ID=$(az identity show -g "$RG" -n "${APP_NAME}-deploy" --query principalId -o tsv)
 
-# App layer (uses the remote backend created above):
-cd ../1_app
-terraform init \
-  -backend-config="resource_group_name=$(terraform -chdir=../0_bootstrap output -raw state_resource_group_name)" \
-  -backend-config="storage_account_name=$(terraform -chdir=../0_bootstrap output -raw state_storage_account_name)" \
-  -backend-config="container_name=$(terraform -chdir=../0_bootstrap output -raw state_container_name)"
-./deploy.sh                 # two-phase apply (prints GitHub OAuth URLs)
+# 2. Least-privilege role on the Web App only (needs User Access Administrator/Owner).
+WEBAPP_ID=$(az webapp show -g "$RG" -n "$APP_NAME" --query id -o tsv)
+az role assignment create --assignee-object-id "$PRINCIPAL_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Website Contributor" --scope "$WEBAPP_ID"
+
+# 3. Trust GitHub Actions from the `production` environment of this repo.
+az identity federated-credential create -g "$RG" \
+  --identity-name "${APP_NAME}-deploy" --name gh-prod \
+  --issuer https://token.actions.githubusercontent.com \
+  --subject "repo:${REPO}:environment:production" \
+  --audiences api://AzureADTokenExchange
 ```
 
-(The backend values are also baked into `1_app/backend.tf` as defaults.)
+Then set the repo's `production` environment values (Settings → Environments):
 
-### Wire up GitHub (after the app layer is applied once)
-
-Get the values from each layer's `terraform output`, then in the GitHub repo
-create two **Environments** — `production` (app deploys) and `production-infra`
-(infra; add required reviewers + restrict to `main`) — and set:
-
-| Kind | Name | Value (source) |
+| Kind | Name | Value |
 | --- | --- | --- |
-| Variable | `AZURE_WEBAPP_NAME` | `1_app` → `app_name` |
-| Variable | `INFRA_IDENTITY_NAME` | `0_bootstrap` → `infra_identity_name` |
-| Secret | `AZURE_CLIENT_ID` | `1_app` → `github_deploy_client_id` |
-| Secret | `AZURE_INFRA_CLIENT_ID` | `0_bootstrap` → `infra_identity_client_id` |
+| Variable | `AZURE_WEBAPP_NAME` | `terraform -chdir=infra output -raw app_name` |
+| Secret | `AZURE_CLIENT_ID` | the `$CLIENT_ID` above |
 | Secret | `AZURE_TENANT_ID` | your tenant ID |
 | Secret | `AZURE_SUBSCRIPTION_ID` | your subscription ID |
-| Secret | `TF_GITHUB_CLIENT_ID` | GitHub OAuth App client ID |
-| Secret | `TF_GITHUB_CLIENT_SECRET` | GitHub OAuth App client secret |
-| Secret | `TF_GITHUB_APP_ID` | GitHub App ID |
-| Secret | `TF_GITHUB_APP_PRIVATE_KEY` | GitHub App private key (PEM contents) |
-| Secret | `TF_GITHUB_WEBHOOK_SECRET` | GitHub App webhook secret |
 
-> The infra identity is an **owner** of the Entra admin app registration (set in
-> `1_app/entra.tf`), which lets it manage that app without a directory-wide role.
-> Assigning the admin **app role to users** (`admin_principal_object_ids`) still
-> needs a directory admin; do that locally or in the portal.
+> Code deploys reach the App Service SCM (Kudu) endpoint, which stays public;
+> only the app's **outbound** dependencies (Cosmos, Key Vault) are private.
 
 ## Layout
 
-- `app.py` — pure app factory `create_app(config, store)` + composition root
+- `app.py` — pure app factory `create_app(config, store, github)` + composition root
 - `config.py` — env-driven configuration (the only place that reads `os.environ`)
 - `models.py` — `Org` dataclass (Cosmos document)
 - `org_store.py` — `OrgStore` interface + `CosmosOrgStore` implementation
 - `auth.py` — Easy Auth admin gate (`admin_required`)
-- `github.py` — GitHub API helpers (`check_org_status`: ok/no_access/missing)
+- `github_client.py` — GitHub App client (OAuth identity + per-org invitations)
+- `webhooks.py` — HMAC-verified `installation` webhook (auto-onboard/remove orgs)
 - `telemetry.py` — Azure Monitor / Application Insights wiring (config-driven)
 - `admin.py` — org-list CRUD + QR page + org check
 - `participants.py` — GitHub OAuth identity + join
 - `templates/` — server-rendered Jinja (GitHub dark theme)
-- `infra/0_bootstrap/` — day-0 Terraform: state account + infra CI identity
-- `infra/1_app/` — application Terraform (App Service, Cosmos, Entra app, deploy identity)
-- `.github/workflows/` — `deploy-app.yml` (app) and `infra.yml` (Terraform)
+- `infra/` — Terraform: App Service (VNet-integrated), private Cosmos + Key Vault,
+  private endpoints/DNS, Entra app (single user-run local-state layer)
+- `.github/workflows/deploy-app.yml` — app-code deploy (OIDC, independent of infra)
+
+## Network architecture
+
+The App Service is **VNet-integrated**: its outbound traffic is routed into a
+private VNet, so it reaches Cosmos DB and Key Vault over **private endpoints**
+(never the public internet). Two subnets keep concerns separate — the delegated
+integration subnet can't also host private endpoints. Inbound to the app stays
+public so participants can scan the QR and GitHub can POST the webhook.
+
+```mermaid
+flowchart TB
+  user(["Participant / Admin<br/>browser · GitHub webhook"])
+  operator(["Operator<br/>terraform apply"])
+
+  subgraph RG["Resource group (rg-qr-org-join)"]
+    direction TB
+
+    app["App Service (Linux · gunicorn)<br/>user-assigned identity · public inbound"]
+
+    subgraph VNet["Virtual network — 10.10.0.0/16"]
+      direction TB
+      subgraph appsub["snet-app · 10.10.1.0/24<br/>delegated: Microsoft.Web/serverFarms"]
+        vint(["VNet integration<br/>(outbound only)"])
+      end
+      subgraph pesub["snet-pe · 10.10.2.0/24"]
+        cpe["Private endpoint<br/>Cosmos · group: Sql"]
+        kpe["Private endpoint<br/>Key Vault · group: vault"]
+      end
+    end
+
+    subgraph zones["Private DNS zones (linked to the VNet)"]
+      direction TB
+      cdns["privatelink.documents.azure.com"]
+      kdns["privatelink.vaultcore.azure.net"]
+    end
+
+    cosmos[("Cosmos DB for NoSQL<br/>public access: disabled")]
+    kv{{"Key Vault<br/>network ACL: default deny<br/>operator IP + AzureServices bypass"}}
+    ai["Application Insights"]
+  end
+
+  user -->|"HTTPS (public inbound)"| app
+  app ==>|"regional VNet integration · route-all outbound"| vint
+
+  app -->|"data plane · UAMI"| cpe
+  app -->|"@Microsoft.KeyVault refs · UAMI"| kpe
+  cpe --- cosmos
+  kpe --- kv
+  cdns -.->|"auto A record → 10.10.2.x"| cpe
+  kdns -.->|"auto A record → 10.10.2.x"| kpe
+
+  app -->|"telemetry"| ai
+  operator -->|"seed secrets (IP allow-listed)"| kv
+```
+
+**How a private lookup resolves** — the linked private DNS zones make the public
+hostnames resolve to a private IP inside `snet-pe`, so the connection stays on
+Private Link. Terraform declares the zones and their VNet link; each private
+endpoint's `private_dns_zone_group` then **auto-creates and maintains** the A
+records — you never write them by hand:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant App as App Service<br/>(VNet-integrated)
+  participant DNS as Private DNS zone
+  participant PE as Private endpoint<br/>(snet-pe)
+  participant Svc as Cosmos DB / Key Vault
+
+  App->>DNS: resolve public FQDN<br/>(*.documents.azure.com / *.vault.azure.net)
+  DNS-->>App: CNAME → privatelink zone → A record 10.10.2.x
+  App->>PE: connect to the private IP
+  PE->>Svc: forward over Private Link
+  Svc-->>App: response (no public internet)
+```
 
 ## Observability
 

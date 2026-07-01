@@ -7,76 +7,76 @@ locals {
   # for regional hostnames or custom domains.
   app_url = var.app_base_url != "" ? var.app_base_url : "https://${local.app_name}.azurewebsites.net"
 
-  # Cosmos DB region. Defaults to the deployment location, but can be overridden
-  # (e.g. when a region is temporarily capacity-constrained for Cosmos).
-  cosmos_location = var.cosmos_location != "" ? var.cosmos_location : var.location
+  # Key Vault names are globally unique, <=24 chars, alphanumeric + hyphens.
+  key_vault_name = substr(replace("${local.app_name}-kv", "--", "-"), 0, 24)
+
+  # Value of the Entra app role that grants admin access (matches ENTRA_ADMIN_ROLE).
+  admin_role_value = "admin"
 }
 
 # Random suffix used only when app_name is left empty. 6 lowercase-alphanumeric
 # characters make a global hostname collision astronomically unlikely.
 resource "random_string" "suffix" {
   length  = 6
-  lower   = true
   upper   = false
-  numeric = true
   special = false
 }
 
-# The application resource group is created in 0_bootstrap (so the infra CI
-# identity can be granted RBAC on it first); read it here.
-data "azurerm_resource_group" "app" {
-  name = var.app_resource_group_name
+resource "azurerm_resource_group" "this" {
+  name     = var.resource_group_name
+  location = var.location
+}
+
+# User-assigned identity for the web app. Used for BOTH passwordless Cosmos
+# access AND Key Vault reference resolution. Creating it up-front (rather than a
+# system-assigned identity) lets us grant it RBAC before the Web App reads any
+# Key Vault reference, avoiding the "identity not yet authorized" startup race.
+resource "azurerm_user_assigned_identity" "app" {
+  name                = "${local.app_name}-app"
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
 }
 
 resource "azurerm_service_plan" "this" {
   name                = "${local.app_name}-plan"
-  resource_group_name = data.azurerm_resource_group.app.name
-  location            = data.azurerm_resource_group.app.location
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
   os_type             = "Linux"
-  sku_name            = var.sku_name
-  worker_count        = var.instance_count
+  # S1 (Standard) is the smallest SKU that supports regional VNet integration.
+  sku_name = "S1"
 }
 
 # Workspace-based Application Insights (the modern, required topology).
 resource "azurerm_log_analytics_workspace" "this" {
   name                = "${local.app_name}-logs"
-  resource_group_name = data.azurerm_resource_group.app.name
-  location            = data.azurerm_resource_group.app.location
-  sku                 = "PerGB2018"
-  retention_in_days   = var.log_retention_in_days
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
 }
 
 resource "azurerm_application_insights" "this" {
   name                = "${local.app_name}-ai"
-  resource_group_name = data.azurerm_resource_group.app.name
-  location            = data.azurerm_resource_group.app.location
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
   workspace_id        = azurerm_log_analytics_workspace.this.id
   application_type    = "web"
 }
 
-# --- Cosmos DB for NoSQL (serverless, key auth disabled) -------------------
+# --- Cosmos DB for NoSQL (serverless, key auth disabled, PRIVATE) ----------
 # Orgs are stored here and accessed passwordlessly via managed identity + RBAC.
+# Public network access is disabled; the app reaches Cosmos over a private
+# endpoint (see networking.tf). Database/container creation uses the ARM control
+# plane, so `terraform apply` still works from a public runner/laptop.
 resource "azurerm_cosmosdb_account" "this" {
   name                = "${local.app_name}-cosmos"
-  resource_group_name = data.azurerm_resource_group.app.name
-  location            = local.cosmos_location
+  resource_group_name = azurerm_resource_group.this.name
+  location            = var.location
   offer_type          = "Standard"
-  kind                = "GlobalDocumentDB"
 
   # Force Entra ID (AAD) auth only — no account keys are issued or used.
   local_authentication_enabled = false
 
-  # App Service connects over public internet, so keep public access on. (A
-  # governance policy disabling this blocks the app with Cosmos 403 Forbidden;
-  # re-enable here or via `az cosmosdb update --public-network-access ENABLED`.)
-  public_network_access_enabled = true
-
-  # Exempt this account from MCAPS security-policy enforcement (e.g. the policy
-  # that disables public network access). Note: the platform may strip this tag
-  # after ~14 days, so the durable fix is private networking.
-  tags = {
-    SecurityControl = "Ignore"
-  }
+  # No public endpoint; access is exclusively via the private endpoint.
+  public_network_access_enabled = false
 
   capabilities {
     name = "EnableServerless"
@@ -87,43 +87,43 @@ resource "azurerm_cosmosdb_account" "this" {
   }
 
   geo_location {
-    location          = local.cosmos_location
+    location          = var.location
     failover_priority = 0
   }
 }
 
 resource "azurerm_cosmosdb_sql_database" "this" {
   name                = "qrorgjoin"
-  resource_group_name = data.azurerm_resource_group.app.name
+  resource_group_name = azurerm_resource_group.this.name
   account_name        = azurerm_cosmosdb_account.this.name
 }
 
 resource "azurerm_cosmosdb_sql_container" "orgs" {
   name                  = "orgs"
-  resource_group_name   = data.azurerm_resource_group.app.name
+  resource_group_name   = azurerm_resource_group.this.name
   account_name          = azurerm_cosmosdb_account.this.name
   database_name         = azurerm_cosmosdb_sql_database.this.name
   partition_key_paths   = ["/id"]
   partition_key_version = 2
 }
 
-# Grant the web app's managed identity data-plane access (Built-in Data
-# Contributor: read + write items). The role's well-known GUID is
+# Grant the web app's identity data-plane access (Built-in Data Contributor:
+# read + write items). The role's well-known GUID is
 # 00000000-0000-0000-0000-000000000002.
 resource "azurerm_cosmosdb_sql_role_assignment" "app" {
-  resource_group_name = data.azurerm_resource_group.app.name
+  resource_group_name = azurerm_resource_group.this.name
   account_name        = azurerm_cosmosdb_account.this.name
   role_definition_id  = "${azurerm_cosmosdb_account.this.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002"
-  principal_id        = azurerm_linux_web_app.this.identity[0].principal_id
+  principal_id        = azurerm_user_assigned_identity.app.principal_id
   scope               = azurerm_cosmosdb_account.this.id
 }
 
 # Optional: grant developers the same data role so they can run the app locally
-# against this account with `az login` (DefaultAzureCredential).
+# (requires network access to the private Cosmos endpoint, e.g. via VPN/Bastion).
 resource "azurerm_cosmosdb_sql_role_assignment" "devs" {
   for_each = toset(var.cosmos_data_principal_object_ids)
 
-  resource_group_name = data.azurerm_resource_group.app.name
+  resource_group_name = azurerm_resource_group.this.name
   account_name        = azurerm_cosmosdb_account.this.name
   role_definition_id  = "${azurerm_cosmosdb_account.this.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002"
   principal_id        = each.value
@@ -132,26 +132,41 @@ resource "azurerm_cosmosdb_sql_role_assignment" "devs" {
 
 resource "azurerm_linux_web_app" "this" {
   name                = local.app_name
-  resource_group_name = data.azurerm_resource_group.app.name
+  resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_service_plan.this.location
   service_plan_id     = azurerm_service_plan.this.id
 
   https_only = true
 
-  # System-assigned managed identity used for passwordless Cosmos DB access.
+  # Regional VNet integration: all outbound traffic (Cosmos + Key Vault private
+  # endpoints, GitHub API, App Insights) is routed through the VNet so private
+  # DNS resolves and the private endpoints are reachable. Inbound stays public
+  # (participants scan the QR; GitHub POSTs the webhook).
+  virtual_network_subnet_id = azurerm_subnet.app.id
+
+  # User-assigned identity for Cosmos + Key Vault references.
   identity {
-    type = "SystemAssigned"
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.app.id]
   }
+
+  # Resolve @Microsoft.KeyVault(...) app-setting references using the app's UAMI
+  # (which already holds "Key Vault Secrets User"), not a system identity.
+  key_vault_reference_identity_id = azurerm_user_assigned_identity.app.id
 
   site_config {
     always_on = true
+
+    # Send ALL outbound through the VNet integration (needed so private DNS +
+    # private endpoints are used for Cosmos and Key Vault).
+    vnet_route_all_enabled = true
 
     # No custom app_command_line: Oryx compresses the build (output.tar.zst) and
     # its generated startup script extracts it to /tmp and runs `gunicorn app:app`
     # from there. A custom command would run in /home/site/wwwroot (where app.py
     # isn't present after extraction) and fail with "No module named 'app'".
     application_stack {
-      python_version = var.python_version
+      python_version = "3.12"
     }
   }
 
@@ -160,7 +175,9 @@ resource "azurerm_linux_web_app" "this" {
     SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
 
     # --- Application configuration (see .env.example) -----------------------
-    FLASK_SECRET_KEY = random_password.flask_secret.result
+    # Secrets are Key Vault references, resolved by the app's UAMI over the
+    # vault's private endpoint. Non-secret values are inline.
+    FLASK_SECRET_KEY = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.flask_secret.versionless_id})"
     APP_BASE_URL     = local.app_url
 
     # Cosmos DB (orgs store) — accessed via managed identity, no keys.
@@ -169,20 +186,20 @@ resource "azurerm_linux_web_app" "this" {
     COSMOS_CONTAINER = azurerm_cosmosdb_sql_container.orgs.name
 
     GITHUB_CLIENT_ID     = var.github_client_id
-    GITHUB_CLIENT_SECRET = var.github_client_secret
+    GITHUB_CLIENT_SECRET = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.github_client_secret.versionless_id})"
 
-    # GitHub App (replaces the classic PAT): least-privilege per-org invites.
+    # GitHub App (least-privilege per-org invites).
     GITHUB_APP_ID          = var.github_app_id
-    GITHUB_APP_PRIVATE_KEY = var.github_app_private_key
-    GITHUB_WEBHOOK_SECRET  = var.github_webhook_secret
+    GITHUB_APP_PRIVATE_KEY = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.github_app_private_key.versionless_id})"
+    GITHUB_WEBHOOK_SECRET  = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.github_webhook_secret.versionless_id})"
 
-    ENTRA_ADMIN_ROLE = var.admin_app_role_value
+    ENTRA_ADMIN_ROLE = local.admin_role_value
 
     # Application Insights (Azure Monitor OpenTelemetry reads this automatically).
     APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.this.connection_string
 
     # Consumed by Easy Auth's active_directory_v2 provider below.
-    MICROSOFT_PROVIDER_AUTHENTICATION_SECRET = azuread_application_password.admin.value
+    MICROSOFT_PROVIDER_AUTHENTICATION_SECRET = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.easy_auth.versionless_id})"
   }
 
   # App Service Easy Auth (AuthV2). Unauthenticated requests are allowed so
@@ -201,6 +218,10 @@ resource "azurerm_linux_web_app" "this" {
 
     login {}
   }
+
+  # The UAMI must hold "Key Vault Secrets User" before the app resolves any
+  # @Microsoft.KeyVault reference; ensure the role assignment exists first.
+  depends_on = [azurerm_role_assignment.app_kv_secrets_user]
 }
 
 resource "random_password" "flask_secret" {

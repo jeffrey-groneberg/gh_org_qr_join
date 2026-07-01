@@ -2,8 +2,9 @@
 
 Admins manage a list of GitHub organizations through an Easy Auth-protected CRUD
 UI and project a per-org QR code. Participants scan the code, sign in with GitHub
-(identity only), and are invited into that org via a single classic PAT. Orgs are
-stored in Cosmos DB, accessed passwordlessly via managed identity.
+(identity only), and are invited into that org via a per-org GitHub App
+installation token (least privilege: *Members: write*). Orgs are stored in Cosmos
+DB, accessed passwordlessly via managed identity.
 
 This module separates two concerns:
 
