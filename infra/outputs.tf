@@ -8,6 +8,16 @@ output "resource_group_name" {
   value       = azurerm_resource_group.this.name
 }
 
+output "app_service_plan_name" {
+  description = "App Service plan hosting the web app (pass to `az webapp up --plan`)."
+  value       = azurerm_service_plan.this.name
+}
+
+output "location" {
+  description = "Azure region the resources are deployed in (pass to `az webapp up --location`)."
+  value       = azurerm_resource_group.this.location
+}
+
 output "app_url" {
   description = "Public URL of the deployed app."
   value       = local.app_url

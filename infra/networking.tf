@@ -8,7 +8,7 @@
 #   * snet-pe  — hosts the Cosmos + Key Vault private endpoints
 
 resource "azurerm_virtual_network" "this" {
-  name                = "${local.app_name}-vnet"
+  name                = "vnet-${local.workload}-${local.suffix}"
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_resource_group.this.location
   address_space       = ["10.10.0.0/16"]
@@ -63,7 +63,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "kv" {
 
 # --- Private endpoints ------------------------------------------------------
 resource "azurerm_private_endpoint" "cosmos" {
-  name                = "${local.app_name}-cosmos-pe"
+  name                = "pep-${local.workload}-cosmos-${local.suffix}"
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_resource_group.this.location
   subnet_id           = azurerm_subnet.pe.id
@@ -82,7 +82,7 @@ resource "azurerm_private_endpoint" "cosmos" {
 }
 
 resource "azurerm_private_endpoint" "kv" {
-  name                = "${local.app_name}-kv-pe"
+  name                = "pep-${local.workload}-kv-${local.suffix}"
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_resource_group.this.location
   subnet_id           = azurerm_subnet.pe.id

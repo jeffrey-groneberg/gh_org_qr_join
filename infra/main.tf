@@ -1,14 +1,28 @@
 locals {
-  # Use the provided name, or auto-generate "<prefix>-<random>" for global
-  # uniqueness so the operator never has to invent one.
-  app_name = var.app_name != "" ? var.app_name : "${var.app_name_prefix}-${random_string.suffix.result}"
+  # Shared 6-char suffix (from random_string.suffix) reused across the whole
+  # resource set so every name ends with the same instance token.
+  suffix = random_string.suffix.result
+
+  # Workload token embedded in every resource name, following the Azure CAF
+  # convention <resource-abbreviation>-<workload>-<instance>.
+  workload = var.app_name_prefix
+
+  # The Web App name IS the public hostname (must be globally unique), so it
+  # keeps the bare "<workload>-<suffix>" form with no CAF prefix. An explicit
+  # app_name overrides it.
+  app_name = var.app_name != "" ? var.app_name : "${local.workload}-${local.suffix}"
+
+  # Resource group: an explicit name wins; otherwise auto-generate a unique
+  # "rg-<workload>-<suffix>" so repeat or parallel deployments never collide
+  # with an existing group.
+  resource_group_name = var.resource_group_name != "" ? var.resource_group_name : "rg-${local.workload}-${local.suffix}"
 
   # Default to the standard azurewebsites.net hostname; override via app_base_url
   # for regional hostnames or custom domains.
   app_url = var.app_base_url != "" ? var.app_base_url : "https://${local.app_name}.azurewebsites.net"
 
-  # Key Vault names are globally unique, <=24 chars, alphanumeric + hyphens.
-  key_vault_name = substr(replace("${local.app_name}-kv", "--", "-"), 0, 24)
+  # Key Vault (CAF: kv-) names are globally unique, <=24 chars, alphanumeric + hyphens.
+  key_vault_name = substr(replace("kv-${local.workload}-${local.suffix}", "--", "-"), 0, 24)
 
   # Value of the Entra app role that grants admin access (matches ENTRA_ADMIN_ROLE).
   admin_role_value = "admin"
@@ -23,7 +37,7 @@ resource "random_string" "suffix" {
 }
 
 resource "azurerm_resource_group" "this" {
-  name     = var.resource_group_name
+  name     = local.resource_group_name
   location = var.location
 }
 
@@ -32,13 +46,13 @@ resource "azurerm_resource_group" "this" {
 # system-assigned identity) lets us grant it RBAC before the Web App reads any
 # Key Vault reference, avoiding the "identity not yet authorized" startup race.
 resource "azurerm_user_assigned_identity" "app" {
-  name                = "${local.app_name}-app"
+  name                = "id-${local.workload}-${local.suffix}"
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_resource_group.this.location
 }
 
 resource "azurerm_service_plan" "this" {
-  name                = "${local.app_name}-plan"
+  name                = "asp-${local.workload}-${local.suffix}"
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_resource_group.this.location
   os_type             = "Linux"
@@ -48,13 +62,13 @@ resource "azurerm_service_plan" "this" {
 
 # Workspace-based Application Insights (the modern, required topology).
 resource "azurerm_log_analytics_workspace" "this" {
-  name                = "${local.app_name}-logs"
+  name                = "log-${local.workload}-${local.suffix}"
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_resource_group.this.location
 }
 
 resource "azurerm_application_insights" "this" {
-  name                = "${local.app_name}-ai"
+  name                = "appi-${local.workload}-${local.suffix}"
   resource_group_name = azurerm_resource_group.this.name
   location            = azurerm_resource_group.this.location
   workspace_id        = azurerm_log_analytics_workspace.this.id
@@ -67,7 +81,7 @@ resource "azurerm_application_insights" "this" {
 # endpoint (see networking.tf). Database/container creation uses the ARM control
 # plane, so `terraform apply` still works from a public runner/laptop.
 resource "azurerm_cosmosdb_account" "this" {
-  name                = "${local.app_name}-cosmos"
+  name                = "cosno-${local.workload}-${local.suffix}"
   resource_group_name = azurerm_resource_group.this.name
   location            = var.location
   offer_type          = "Standard"

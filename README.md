@@ -20,6 +20,24 @@ org against GitHub and reports one of: the app is installed and can invite (OK),
 the app is not installed (not installed), or the org no longer exists (missing).
 **Remove** deletes a stale entry (e.g. if an uninstall webhook was missed).
 
+## Why QR Org Join
+
+**Running a hackathon for 100 people? Onboarding every one of them into your own
+GitHub organization by hand — collecting usernames, firing off invitations one by
+one, and chasing the stragglers — is a genuinely painful afternoon.** QR Org Join
+collapses that into a single QR code on a slide: attendees scan it, sign in with
+GitHub, type a passcode, and invite themselves.
+
+<p align="center">
+  <img src="docs/process.png" alt="End-to-end flow: the admin installs the GitHub App (the org auto-onboards) and projects its QR code and passcode; a participant scans the code, signs in with GitHub, enters the passcode, and is invited into the org — accepting on GitHub finishes the join." width="820">
+</p>
+
+In short: the admin **installs** the GitHub App (which auto-onboards the org) and
+**projects** its QR code and passcode; each participant **scans**, **signs in**
+with GitHub, enters the **passcode**, and is **invited** — accepting on GitHub
+completes the join. No manual username collection, no one-by-one invites. The
+step-by-step detail is below.
+
 ## How it works
 
 1. An admin installs the **GitHub App** on an org — the `installation` webhook
@@ -192,12 +210,14 @@ assignments; **Application Administrator** for step 3's Entra objects; your IP i
 > outbound IP (VPN/proxy/NAT can change it) and update `operator_ip_cidr`.
 
 ### Step 8 — Deploy the application code
-From the repo root, using the resolved name
-(`terraform -chdir=infra output -raw app_name`):
+From the repo root, using the resolved names from `terraform -chdir=infra output`
+(`app_name`, `resource_group_name`, `app_service_plan_name`, `location`):
 ```bash
 az webapp up \
   --name <app_name> \
-  --resource-group rg-qr-org-join \
+  --resource-group <resource_group_name> \
+  --plan <app_service_plan_name> \
+  --location <location> \
   --runtime "PYTHON:3.12"
 ```
 App Service builds the source with Oryx (`pip install -r requirements.txt`) and
@@ -310,7 +330,7 @@ flowchart TB
   user(["Participant / Admin<br/>browser · GitHub webhook"])
   operator(["Operator<br/>terraform apply"])
 
-  subgraph RG["Resource group (rg-qr-org-join)"]
+  subgraph RG["Resource group (rg-qr-org-join-<random>)"]
     direction TB
 
     app["App Service (Linux · gunicorn)<br/>user-assigned identity · public inbound"]

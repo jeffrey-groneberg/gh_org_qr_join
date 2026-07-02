@@ -28,8 +28,9 @@ if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   BOLD=$'\033[1m'; RESET=$'\033[0m'
   RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'
   BLUE=$'\033[34m'; MAGENTA=$'\033[35m'; CYAN=$'\033[36m'
+  ORANGE=$'\033[38;5;208m'
 else
-  BOLD=; RESET=; RED=; GREEN=; YELLOW=; BLUE=; MAGENTA=; CYAN=
+  BOLD=; RESET=; RED=; GREEN=; YELLOW=; BLUE=; MAGENTA=; CYAN=; ORANGE=
 fi
 step() { printf '%s==>%s %s\n' "${BOLD}${CYAN}" "${RESET}" "$*"; }
 ok()   { printf '    %s✓%s %s\n' "${GREEN}" "${RESET}" "$*"; }
@@ -141,6 +142,32 @@ validate_github_credentials() {
   esac
 }
 
+# --- Banner (colourless Octocat + red/orange title) ------------------------
+cat <<'OCTO'
+
+              MMM.     .MMM
+              MMMMMMMMMMMMMMMMMMM
+              MMMMMMMMMMMMMMMMMMM
+             MMMMMMMMMMMMMMMMMMMMM
+            MMMMMMMMMMMMMMMMMMMMMMM
+            MMMM::- -:::::::- -::MMMM
+             MM~:~00~:::::~00~:~MM
+        .. MMMMM::.00:::+:::.00::MMMMM ..
+              .MM::::: ._. :::::MM.
+                 MMMM;:::::;MMMM
+          -MM        MMMMMMM
+          ^  M+     MMMMMMMMM
+              MMMMMMM MM MM MM
+                   MM MM MM MM
+                   MM MM MM MM
+                .~~MM~MM~MM~MM~~.
+             ~~~~MM:~MM~~~MM~:MM~~~~
+             ~~~~~~==~==~~~==~==~~~~~~
+              ~~~~~~==~==~==~==~~~~~~
+                   :~==~==~==~==~~
+OCTO
+printf '\n        %sQR ORG JOIN%s\n\n' "${BOLD}" "${RESET}"
+
 # terraform.tfvars must exist before anything runs: even phase 1 evaluates the
 # required variables. Guide the user to create it from the template if missing.
 if [ ! -f terraform.tfvars ]; then
@@ -177,35 +204,53 @@ Your app will be deployed as:
   Name: ${BOLD}${APP_NAME}${RESET}
   URL:  ${BOLD}${APP_URL}${RESET}
 
-Complete these four tasks, then press Enter to continue.
-${BOLD}(${RED}Red values${RESET}${BOLD} are exact strings to copy & paste for a later step.)${RESET}
+You'll set up two GitHub apps by hand (GitHub can't be automated), then paste
+three values back into ${BOLD}infra/terraform.tfvars${RESET}. Do the four tasks below,
+then press Enter.
 
-${BOLD}${BLUE}TASK 1 — GitHub OAuth App${RESET}  (identifies the participant)
-  Create/Update it at ${BLUE}https://github.com/settings/developers${RESET}
-    Homepage URL:               ${BOLD}${RED}${APP_URL}${RESET}
-    Authorization callback URL: ${BOLD}${RED}${APP_URL}/callback${RESET}
-  Then copy its Client ID + a new client secret (used in Task 4).
+Legend:
+  ${RED}● red${RESET}    = type/paste this EXACT value INTO the GitHub form
+  ${ORANGE}● orange${RESET} = copy this FROM GitHub back INTO infra/terraform.tfvars
 
-${BOLD}${MAGENTA}TASK 2 — GitHub App${RESET}  (sends invitations + Copilot seats + webhook)
-  Create/Update it at ${MAGENTA}https://github.com/settings/apps${RESET}
-    Permissions → Organization → Members               = Read & write
-    Permissions → Organization → GitHub Copilot Business = Read & write
-    Subscribe to events:  Installation
-    Webhook URL:    ${BOLD}${RED}${APP_URL}/webhooks/github${RESET}
-    Webhook secret: ${BOLD}${RED}${WEBHOOK_SECRET}${RESET}
-  Then note its numeric App ID (used in Task 4).
+${BOLD}${BLUE}TASK 1 — Create the GitHub OAuth App${RESET}  (identifies the participant)
+  a) Open ${BLUE}https://github.com/settings/developers${RESET} → "OAuth Apps" → "New OAuth App".
+  b) Fill the form:
+       Application name:            anything (e.g. "QR Org Join")
+       Homepage URL:                ${BOLD}${RED}${APP_URL}${RESET}
+       Authorization callback URL:  ${BOLD}${RED}${APP_URL}/callback${RESET}
+  c) Click "Register application".
+  d) Copy these two values (for Task 4):
+       the "Client ID"                     → ${ORANGE}github_client_id${RESET}
+       "Generate a new client secret"      → ${ORANGE}github_client_secret${RESET}
+
+${BOLD}${MAGENTA}TASK 2 — Create the GitHub App${RESET}  (sends invites + Copilot seats + webhook)
+  a) Open ${MAGENTA}https://github.com/settings/apps${RESET} → "New GitHub App".
+  b) Fill the form:
+       GitHub App name:  anything (e.g. "QR Org Join Inviter")
+       Homepage URL:     ${BOLD}${RED}${APP_URL}${RESET}
+       Webhook URL:      ${BOLD}${RED}${APP_URL}/webhooks/github${RESET}
+       Webhook secret:   ${BOLD}${RED}${WEBHOOK_SECRET}${RESET}
+  c) Permissions → Organization:
+       "Members"                 = Read & write
+       "GitHub Copilot Business" = Read & write
+  d) Under "Subscribe to events", tick ${BOLD}Installation${RESET}.
+  e) Click "Create GitHub App", then copy (for Task 4):
+       the numeric "App ID"                → ${ORANGE}github_app_id${RESET}
 
 ${BOLD}${CYAN}TASK 3 — Save the GitHub App private key${RESET}
-  In the GitHub App, "Generate a private key", then save the downloaded .pem as:
+  On the same GitHub App page → "Private keys" → "Generate a private key".
+  Save the downloaded .pem file EXACTLY at this path:
     ${BOLD}$(pwd)/github-app.pem${RESET}
-  (gitignored; Terraform reads it from there — you never paste its contents.)
+  (gitignored; Terraform reads it from this path — you never paste its contents.)
 
-${BOLD}${YELLOW}TASK 4 — Fill terraform.tfvars${RESET}
-    github_client_id     = "<Client ID from Task 1>"
-    github_client_secret = "<client secret from Task 1>"
-    github_app_id        = "<App ID from Task 2>"
-  (The webhook secret lives in Terraform state; the private key is the .pem file —
-   neither goes in terraform.tfvars.)
+${BOLD}${YELLOW}TASK 4 — Paste the three values into infra/terraform.tfvars${RESET}
+  Open ${BOLD}infra/terraform.tfvars${RESET} and set exactly these three lines:
+       github_client_id     = "..."   ${ORANGE}← Client ID from Task 1${RESET}
+       github_client_secret = "..."   ${ORANGE}← client secret from Task 1${RESET}
+       github_app_id        = "..."   ${ORANGE}← App ID from Task 2${RESET}
+  Do NOT put the webhook secret or the private key here:
+    - webhook secret → already stored in Terraform state (you used it in Task 2)
+    - private key    → the github-app.pem file from Task 3
 ${BOLD}────────────────────────────────────────────────────────────────────────${RESET}
 EOF
 
@@ -229,12 +274,14 @@ step "terraform apply (full)"
 terraform apply -input=false "$@"
 
 RG="$(terraform output -raw resource_group_name)"
+PLAN_NAME="$(terraform output -raw app_service_plan_name)"
+LOCATION="$(terraform output -raw location)"
 
 cat <<EOF
 
 ${BOLD}${GREEN}✓ Infrastructure ready.${RESET} Deploy the application code from the repo root:
 
-    ${BOLD}${RED}az webapp up --name ${APP_NAME} --resource-group ${RG} --runtime "PYTHON:3.12"${RESET}
+    ${BOLD}${RED}az webapp up --name ${APP_NAME} --resource-group ${RG} --plan ${PLAN_NAME} --location ${LOCATION} --runtime "PYTHON:3.12"${RESET}
 
 (${BOLD}${RED}Red${RESET} = copy & paste this command to deploy your code.)
 

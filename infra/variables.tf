@@ -9,9 +9,22 @@ variable "location" {
 }
 
 variable "resource_group_name" {
-  description = "Resource group to create and deploy into."
+  description = <<-EOT
+    Resource group to create and deploy into. Leave empty to auto-generate
+    "rg-<app_name_prefix>-<random>" (recommended) so repeat or parallel
+    deployments never collide with an existing group. Follows Azure CAF naming:
+    the "rg-" abbreviation + workload name + a unique instance suffix.
+  EOT
   type        = string
-  default     = "rg-qr-org-join"
+  default     = ""
+
+  validation {
+    condition = var.resource_group_name == "" || (
+      can(regex("^[a-zA-Z0-9._()-]{1,90}$", var.resource_group_name)) &&
+      !endswith(var.resource_group_name, ".")
+    )
+    error_message = "resource_group_name must be 1-90 chars (letters, digits, hyphen, underscore, period, parentheses) and cannot end with a period."
+  }
 }
 
 variable "app_name" {

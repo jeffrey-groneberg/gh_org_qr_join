@@ -4,6 +4,10 @@
 # name (recommended — run ./deploy.sh to learn it before configuring GitHub).
 # app_name = "my-qr-org-join"
 
+# Leave resource_group_name empty to auto-generate "rg-<prefix>-<random>"
+# (recommended) so repeat or parallel deploys never collide. Set to pin a name.
+# resource_group_name = "rg-qr-org-join"
+
 location = "northeurope"
 
 # Your public IP so Terraform can seed Key Vault secrets (the vault denies all
