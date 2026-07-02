@@ -55,7 +55,7 @@ The GitHub App is **installed per org** (not an owner), holds only
 short-lived per-org installation tokens. Installing it on an org also fires an
 `installation` webhook that **auto-onboards** that org (see below).
 
-## Deploy to Azure (step by step)
+## Deploy to Azure
 
 Infrastructure lives in [`infra/`](infra/) as a **single Terraform layer** you
 run yourself (local state, `az login`): a resource group, Linux App Service Plan
@@ -88,117 +88,98 @@ Grant yourself these before applying:
 
 ### Prerequisites
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) and
-  [Terraform](https://developer.hashicorp.com/terraform/install) installed.
+  [Terraform](https://developer.hashicorp.com/terraform/install) installed
+  (`deploy.sh` checks both are on your PATH before doing anything).
 - `curl` and `openssl` (used by `deploy.sh` to validate your GitHub credentials
-  before deploying - no Python needed).
-- The roles above.
+  before deploying; no Python needed).
+- The roles above, and `az login` to the target subscription.
 
-You do **not** need to invent an `app_name` - Terraform auto-generates a
-globally-unique `qr-org-join-<random>` name. Deployment is **two-phase**: resolve
-the name first, configure GitHub with the real URLs, then apply everything.
-`infra/deploy.sh` automates this; the manual steps are spelled out below.
+You do **not** invent an `app_name`: Terraform auto-generates a globally-unique
+`qr-org-join-<random>`. Because that name becomes the app's URL (and the GitHub
+callback/webhook URLs), deployment is inherently **two-phase**: resolve the name
+first, set up GitHub against the real URLs, then apply everything. `deploy.sh`
+runs both phases and walks you through the GitHub setup in between.
 
-### Step 1 - Sign in and select the subscription
+### Deploy: run `./deploy.sh` (recommended)
+
 ```bash
 az login
 az account set --subscription <subscription-id>
-curl -s https://api.ipify.org; echo       # -> operator_ip_cidr (append /32)
-```
-(The tenant is taken from your `az login` session - no need to set it.)
 
-### Step 2 - Seed Terraform variables
-```bash
 cd infra
 cp terraform.tfvars.example terraform.tfvars
-```
-Set `operator_ip_cidr` (`x.x.x.x/32`); leave `app_name` empty to auto-generate
-and the `github_*` values as placeholders for now. Optionally set
-`admin_principal_object_ids` to auto-assign yourself the admin role
-(`az ad signed-in-user show --query id -o tsv`).
+# In terraform.tfvars set operator_ip_cidr to your public IP as x.x.x.x/32
+#   (curl -s https://api.ipify.org). Leave app_name empty and the github_*
+#   values as placeholders for now.
 
-### Step 3 - Resolve the app name + webhook secret (phase 1, no resources yet)
-```bash
-terraform init
-terraform apply -target=random_string.suffix -target=random_password.webhook_secret
-terraform output -raw app_url                  # e.g. https://qr-org-join-ab12cd.azurewebsites.net
-terraform output -raw github_webhook_secret    # paste into the GitHub App (Step 5)
+./deploy.sh
 ```
-This resolves the URL and generates the webhook secret **before any Azure resource
-exists** (only random values are written to state). The hostname is deterministic
-(`https://<app_name>.azurewebsites.net`) and, once fixed in state, won't change on
-the full apply. Configure the GitHub OAuth App / GitHub App (Steps 4-5) against
-these values. *Roles: none beyond `az login` - no Azure resources are created
-here.* (Running `./deploy.sh` instead does this and prints both values.)
 
-### Step 4 - Create the GitHub OAuth App (participant identity)
-At <https://github.com/settings/developers> → **New OAuth App**:
+`deploy.sh` runs the whole flow and pauses once for the GitHub setup:
+
+1. **Checks prerequisites** that `terraform` and `az` are installed.
+2. **Phase 1: resolves the name (no Azure resources yet).** It applies only the
+   random values, so it learns the app URL
+   (`https://<app_name>.azurewebsites.net`) and generates the GitHub **webhook
+   secret**. Nothing is created in Azure at this point.
+3. **Prints the GitHub tasks and waits.** It shows the exact Homepage / callback /
+   webhook URLs and the webhook secret, colour-coded (red = paste into GitHub,
+   orange = copy back into `terraform.tfvars`), then pauses. You do the GitHub
+   setup (next section) and press Enter.
+4. **Validates your GitHub credentials** against GitHub (the OAuth client
+   id/secret and the GitHub App ID + `github-app.pem`) and stops with specific
+   guidance if anything is wrong, so a typo is caught before any Azure resource
+   exists.
+5. **Phase 2: applies everything** in dependency order: resource group, VNet +
+   subnets + private DNS, private Cosmos + Key Vault, Application Insights, the
+   Entra app + admin role, all role assignments, Key Vault secrets (written over
+   your allow-listed IP), private endpoints, and the VNet-integrated App Service.
+6. **Prints the code-deploy command** (`az webapp up ...`) to run next.
+
+> If the apply fails writing a Key Vault secret with a **403**, the just-created
+> *Key Vault Secrets Officer* assignment usually hasn't propagated yet: wait
+> ~1 minute and re-run. If it persists, re-check your outbound IP (VPN/proxy/NAT
+> can change it) and update `operator_ip_cidr`.
+
+### The GitHub setup (by hand, since GitHub can't be automated)
+
+When `deploy.sh` pauses, create two GitHub apps and paste three values back into
+`terraform.tfvars`. The script prints the exact URLs and the webhook secret; here
+is what each app is for.
+
+**1. GitHub OAuth App** identifies the participant (empty scope: we only read
+their login). At <https://github.com/settings/developers> → **New OAuth App**:
 - **Homepage URL:** `<app_url>`
 - **Authorization callback URL:** `<app_url>/callback`
 
-Copy the **client ID** and generate a **client secret** →
-`github_client_id` / `github_client_secret`. *Role: your own GitHub account.*
+Copy the **Client ID** and generate a **client secret** → `github_client_id` /
+`github_client_secret`.
 
-### Step 5 - Create the GitHub App (invitations + webhook)
-At <https://github.com/settings/apps> → **New GitHub App**:
-- **Permissions → Organization:**
-  - *Members* = **Read & write** (send invitations)
-  - *GitHub Copilot Business* = **Read & write** (auto-assign a Copilot seat to
-    the invitee; the seat activates when they accept)
+**2. GitHub App** sends the invitations and receives the install webhook. At
+<https://github.com/settings/apps> → **New GitHub App**:
+- **Permissions → Organization:** *Members* = **Read & write** (send invites);
+  *GitHub Copilot Business* = **Read & write** (best-effort Copilot seat).
 - **Subscribe to events:** **Installation**.
-- **Webhook:** Active; **URL** = `<app_url>/webhooks/github`; **Webhook secret** =
-  the `github_webhook_secret` value from Step 3 (generated by Terraform).
-- **Generate a private key** and save the downloaded `.pem` as `infra/github-app.pem`
-  (gitignored; Terraform reads it from there).
+- **Webhook:** Active; **URL** = `<app_url>/webhooks/github`; **Secret** = the
+  `github_webhook_secret` the script printed (generated by Terraform).
+- **Generate a private key** and save the `.pem` as `infra/github-app.pem`
+  (gitignored; Terraform reads it from there, you never paste its contents).
 
-Copy the **App ID** → `github_app_id`. The private key stays a file - you don't
-paste it anywhere. *Role: your own GitHub account (installation comes later and
-needs org owner).*
+Copy the numeric **App ID** → `github_app_id`.
 
-> Copilot seats are assigned **best-effort**: if an org has no Copilot
-> Business/Enterprise plan (or no free seats), the invitation still succeeds - the
-> seat is simply skipped. Assigning a seat needs the org to have granted the
-> *GitHub Copilot Business* permission; if you add it after first install, org
-> owners must approve the updated permission.
+> Only **three values** go into `terraform.tfvars`: `github_client_id`,
+> `github_client_secret`, `github_app_id`. The webhook secret already lives in
+> Terraform state, and the private key is the `.pem` file.
 
-### Step 6 - Fill in the GitHub values
-Set `github_client_id`, `github_client_secret`, and `github_app_id` in
-`terraform.tfvars`, and make sure `infra/github-app.pem` exists (the webhook
-secret is already in Terraform state, and the private key is read from the PEM
-file - neither goes in tfvars).
+> Copilot seats are **best-effort**: if an org has no Copilot Business/Enterprise
+> plan (or no free seats), the invitation still succeeds and the seat is skipped.
+> Assigning a seat needs the org to have granted the *GitHub Copilot Business*
+> permission; if you add it after first install, org owners must approve it.
 
-### Step 7 - Apply everything (phase 2)
-```bash
-terraform apply           # or press Enter in ./deploy.sh
-```
-`deploy.sh` first **validates your GitHub credentials** (OAuth App client
-id/secret and the GitHub App ID + `github-app.pem`) against GitHub and stops with
-specific guidance if anything is wrong - so you catch a typo before any Azure
-resource is created. Then Terraform creates, in dependency order (it resolves the
-order for you):
-1. Resource group, VNet + `snet-app`/`snet-pe`, private DNS zones + VNet links.
-2. Cosmos DB (private), Key Vault (public traffic denied except your IP), App
-   Insights.
-3. Entra app registration + service principal + client secret + any admin role
-   assignments.
-4. Role assignments - app identity → *Cosmos Data Contributor* + *Key Vault
-   Secrets User*; you → *Key Vault Secrets Officer*.
-5. Key Vault secrets - the app credentials from your tfvars plus the Easy Auth
-   client secret from step 3 - written over your allow-listed IP.
-6. Private endpoints (+ auto DNS records) for Cosmos and Key Vault.
-7. App Service (VNet-integrated) with the Key Vault-reference app settings.
+### After the apply: finish deploying
 
-*Roles: **Owner** (or Contributor + User Access Administrator) for step 4's role
-assignments; **Application Administrator** for step 3's Entra objects; your IP in
-`operator_ip_cidr` for step 5's secret writes.*
-
-> If the first apply fails writing a Key Vault secret with a 403, the
-> just-created *Secrets Officer* assignment usually hasn't propagated yet - wait
-> ~1 minute and re-run `terraform apply`. If it persists, re-check your current
-> outbound IP (VPN/proxy/NAT can change it) and update `operator_ip_cidr`.
-
-### Step 8 - Deploy the application code
-From the repo root, using the resolved names from `terraform -chdir=infra output`
-(`app_name`, `resource_group_name`, `app_service_plan_name`, `location`):
+**Deploy the application code** from the repo root (the script prints this exact
+command with the resolved values filled in):
 ```bash
 az webapp up \
   --name <app_name> \
@@ -209,31 +190,56 @@ az webapp up \
 ```
 App Service builds the source with Oryx (`pip install -r requirements.txt`) and
 runs `gunicorn app:app`. *Role: **Website Contributor** (or Contributor) on the
-Web App.* For repeatable CI deploys instead, see
+Web App.* For repeatable CI deploys, see
 [CI/CD](#cicd-github-actions-oidc--no-stored-secrets).
 
-### Step 9 - Grant admin access
-If you didn't pass `admin_principal_object_ids`, assign users to the **admin**
-app role: Entra admin center → **Enterprise applications** → `<app_name>-admin`
-→ **Users and groups** → add users with the `admin` role. *Role: Application
-Administrator / Privileged Role Administrator (or an owner of the app).*
+**Grant admin access** (skip if you set `admin_principal_object_ids`): Entra
+admin center → **Enterprise applications** → `<app_name>-admin` → **Users and
+groups** → add users with the `admin` role.
 
-### Step 10 - Install the GitHub App on each org
-On the GitHub App's page → **Install App** → pick the org. *Requires **org
-owner** on that org.* Installing grants only *Members* + *Copilot Business* write
-(it does **not** make the app an owner) and fires the `installation` webhook,
-which **auto-onboards** the org into the list.
+**Install the GitHub App on each org**: the app's page → **Install App** → pick
+the org (requires **org owner**). Installing grants only *Members* + *Copilot
+Business* write (not ownership) and fires the `installation` webhook, which
+**auto-onboards** the org into the list.
 
-### Step 11 - Verify
-- `<app_url>/healthz` → `{"status":"ok"}`.
-- `/admin` redirects you through Entra sign-in; after consent you see the org
-  list. Confirm the org you installed in Step 10 appears, open its QR, scan it,
-  and complete the GitHub join flow.
+**Verify:** `<app_url>/healthz` returns `{"status":"ok"}`; open `/admin` (Entra
+sign-in), confirm the org appears, open its QR, scan it, and complete the join.
 
 > **Custom / regional hostname:** all URLs derive from the resolved name. If
 > Azure assigns a different hostname (custom domain or unique-default-hostname),
 > set `app_base_url = "https://<actual-host>"` in `terraform.tfvars`, re-apply,
 > and update the GitHub OAuth callback + GitHub App webhook URL to match.
+
+<details>
+<summary><b>Manual alternative: run the two phases yourself (no deploy.sh)</b></summary>
+
+Everything `deploy.sh` does maps to plain Terraform. Do the GitHub setup (above)
+between the two phases.
+
+```bash
+cd infra
+cp terraform.tfvars.example terraform.tfvars   # set operator_ip_cidr
+
+# Phase 1: resolve the name + webhook secret (no Azure resources yet)
+terraform init
+terraform apply -target=random_string.suffix -target=random_password.webhook_secret
+terraform output -raw app_url                # -> Homepage/callback URLs
+terraform output -raw github_webhook_secret  # -> GitHub App webhook secret
+
+# ... now create the GitHub OAuth App + GitHub App (see above), fill the three
+#     github_* values in terraform.tfvars, and save infra/github-app.pem ...
+
+# Phase 2: apply everything
+terraform apply
+```
+
+The hostname is deterministic (`https://<app_name>.azurewebsites.net`) and, once
+fixed in state during phase 1, does not change on the full apply. *Roles:
+**Owner** (or Contributor + User Access Administrator) for the role assignments;
+**Application Administrator** for the Entra objects; your IP in `operator_ip_cidr`
+for the Key Vault secret writes.*
+
+</details>
 
 ## CI/CD (GitHub Actions, OIDC - no stored secrets)
 
