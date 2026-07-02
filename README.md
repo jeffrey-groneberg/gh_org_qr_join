@@ -5,20 +5,7 @@
 </p>
 
 A small Flask app that lets people self-join a GitHub organization by scanning a
-per-org QR code. Organizations are onboarded automatically when the **GitHub App**
-is installed on them; an **admin** views them in an Entra-protected console,
-manages each org's join passcode, and projects its QR code. A **participant**
-scans the code, signs in with GitHub (identity only), enters the join passcode,
-and is invited into that org.
-
-Member management — accepting invitations, roles, removals — stays on
-GitHub.com. This app only creates the invitation.
-
-Installing the GitHub App on an org **auto-onboards** it (via the `installation`
-webhook); uninstalling **removes** it. From the console, **Check** re-validates an
-org against GitHub and reports one of: the app is installed and can invite (OK),
-the app is not installed (not installed), or the org no longer exists (missing).
-**Remove** deletes a stale entry (e.g. if an uninstall webhook was missed).
+per-org QR code.
 
 ## Why QR Org Join
 
