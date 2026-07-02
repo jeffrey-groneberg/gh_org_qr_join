@@ -185,6 +185,11 @@ resource "azurerm_linux_web_app" "this" {
     COSMOS_DATABASE  = azurerm_cosmosdb_sql_database.this.name
     COSMOS_CONTAINER = azurerm_cosmosdb_sql_container.orgs.name
 
+    # Tell DefaultAzureCredential which identity to use at runtime. The app has
+    # only a user-assigned identity, so without this the managed-identity probe
+    # would target a (non-existent) system-assigned identity and fail.
+    AZURE_CLIENT_ID = azurerm_user_assigned_identity.app.client_id
+
     GITHUB_CLIENT_ID     = var.github_client_id
     GITHUB_CLIENT_SECRET = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.github_client_secret.versionless_id})"
 
@@ -212,7 +217,7 @@ resource "azurerm_linux_web_app" "this" {
 
     active_directory_v2 {
       client_id                  = azuread_application.admin.client_id
-      tenant_auth_endpoint       = "https://login.microsoftonline.com/${var.tenant_id}/v2.0/"
+      tenant_auth_endpoint       = "https://login.microsoftonline.com/${data.azuread_client_config.current.tenant_id}/v2.0/"
       client_secret_setting_name = "MICROSOFT_PROVIDER_AUTHENTICATION_SECRET"
     }
 

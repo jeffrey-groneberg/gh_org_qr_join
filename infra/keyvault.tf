@@ -7,7 +7,7 @@ resource "azurerm_key_vault" "this" {
   name                       = local.key_vault_name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = azurerm_resource_group.this.location
-  tenant_id                  = var.tenant_id
+  tenant_id                  = data.azuread_client_config.current.tenant_id
   sku_name                   = "standard"
   rbac_authorization_enabled = true
 
@@ -50,7 +50,7 @@ resource "azurerm_key_vault_secret" "github_client_secret" {
 
 resource "azurerm_key_vault_secret" "github_app_private_key" {
   name         = "github-app-private-key"
-  value        = var.github_app_private_key
+  value        = file("${path.module}/${var.github_app_private_key_file}")
   key_vault_id = azurerm_key_vault.this.id
   depends_on   = [azurerm_role_assignment.operator_kv_secrets_officer]
 }

@@ -5,7 +5,7 @@
 variable "location" {
   description = "Azure region for all resources."
   type        = string
-  default     = "westeurope"
+  default     = "northeurope"
 }
 
 variable "resource_group_name" {
@@ -45,11 +45,6 @@ variable "app_base_url" {
 }
 
 # --- Credentials / inputs that cannot be defaulted -------------------------
-variable "tenant_id" {
-  description = "Entra (Azure AD) tenant ID used for Easy Auth admin login."
-  type        = string
-}
-
 variable "operator_ip_cidr" {
   description = <<-EOT
     Public IP/CIDR of the operator running `terraform apply`. The Key Vault denies
@@ -75,10 +70,14 @@ variable "github_app_id" {
   type        = string
 }
 
-variable "github_app_private_key" {
-  description = "GitHub App RSA private key (PEM contents)."
+variable "github_app_private_key_file" {
+  description = <<-EOT
+    Path (relative to this infra/ directory) to the GitHub App's private-key PEM.
+    Drop the downloaded .pem here — it's gitignored. Only read during the full
+    apply, so it need not exist during the phase-1 name/secret resolution.
+  EOT
   type        = string
-  sensitive   = true
+  default     = "github-app.pem"
 }
 
 # --- Optional access grants (assign in the portal otherwise) ---------------
