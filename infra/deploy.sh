@@ -168,6 +168,22 @@ cat <<'OCTO'
 OCTO
 printf '\n        %sQR ORG JOIN%s\n\n' "${BOLD}" "${RESET}"
 
+# Required CLIs must be on PATH before we do anything.
+step "Checking prerequisites (terraform, az)"
+missing_tools=()
+command -v terraform >/dev/null 2>&1 || missing_tools+=("terraform")
+command -v az >/dev/null 2>&1 || missing_tools+=("az")
+if [ "${#missing_tools[@]}" -gt 0 ]; then
+  fail "Required tool(s) not found on PATH: ${missing_tools[*]}"
+  {
+    printf '    Install the missing tool(s), then re-run ./deploy.sh:\n'
+    printf '      %sterraform%s  %shttps://developer.hashicorp.com/terraform/install%s\n' "${BOLD}" "${RESET}" "${BLUE}" "${RESET}"
+    printf '      %saz%s         %shttps://learn.microsoft.com/cli/azure/install-azure-cli%s\n' "${BOLD}" "${RESET}" "${BLUE}" "${RESET}"
+  } >&2
+  exit 1
+fi
+ok "terraform and az are available."
+
 # terraform.tfvars must exist before anything runs: even phase 1 evaluates the
 # required variables. Guide the user to create it from the template if missing.
 if [ ! -f terraform.tfvars ]; then
