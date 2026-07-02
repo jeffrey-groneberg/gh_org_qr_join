@@ -322,27 +322,6 @@ public so participants can scan the QR and GitHub can POST the webhook.
   <img src="docs/network.png" alt="Network architecture: public HTTPS reaches the VNet-integrated App Service, whose outbound traffic is route-all forced into snet-app (VNet integration) and out to private endpoints in snet-pe for Cosmos DB and Key Vault; linked private DNS zones resolve the service FQDNs to 10.10.2.x, telemetry flows to Application Insights, and the operator seeds Key Vault secrets over an allow-listed IP." width="900">
 </p>
 
-**How a private lookup resolves** - the linked private DNS zones make the public
-hostnames resolve to a private IP inside `snet-pe`, so the connection stays on
-Private Link. Terraform declares the zones and their VNet link; each private
-endpoint's `private_dns_zone_group` then **auto-creates and maintains** the A
-records - you never write them by hand:
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant App as App Service<br/>(VNet-integrated)
-  participant DNS as Private DNS zone
-  participant PE as Private endpoint<br/>(snet-pe)
-  participant Svc as Cosmos DB / Key Vault
-
-  App->>DNS: resolve public FQDN<br/>(*.documents.azure.com / *.vault.azure.net)
-  DNS-->>App: CNAME → privatelink zone → A record 10.10.2.x
-  App->>PE: connect to the private IP
-  PE->>Svc: forward over Private Link
-  Svc-->>App: response (no public internet)
-```
-
 ## Observability
 
 Terraform provisions a **Log Analytics workspace** and a workspace-based
