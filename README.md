@@ -318,51 +318,9 @@ private VNet, so it reaches Cosmos DB and Key Vault over **private endpoints**
 integration subnet can't also host private endpoints. Inbound to the app stays
 public so participants can scan the QR and GitHub can POST the webhook.
 
-```mermaid
-flowchart TB
-  user(["Participant / Admin<br/>browser · GitHub webhook"])
-  operator(["Operator<br/>terraform apply"])
-
-  subgraph RG["Resource group (rg-qr-org-join-<random>)"]
-    direction TB
-
-    app["App Service (Linux · gunicorn)<br/>user-assigned identity · public inbound"]
-
-    subgraph VNet["Virtual network - 10.10.0.0/16"]
-      direction TB
-      subgraph appsub["snet-app · 10.10.1.0/24<br/>delegated: Microsoft.Web/serverFarms"]
-        vint(["VNet integration<br/>(outbound only)"])
-      end
-      subgraph pesub["snet-pe · 10.10.2.0/24"]
-        cpe["Private endpoint<br/>Cosmos · group: Sql"]
-        kpe["Private endpoint<br/>Key Vault · group: vault"]
-      end
-    end
-
-    subgraph zones["Private DNS zones (linked to the VNet)"]
-      direction TB
-      cdns["privatelink.documents.azure.com"]
-      kdns["privatelink.vaultcore.azure.net"]
-    end
-
-    cosmos[("Cosmos DB for NoSQL<br/>public access: disabled")]
-    kv{{"Key Vault<br/>network ACL: default deny<br/>operator IP + AzureServices bypass"}}
-    ai["Application Insights"]
-  end
-
-  user -->|"HTTPS (public inbound)"| app
-  app ==>|"regional VNet integration · route-all outbound"| vint
-
-  app -->|"data plane · UAMI"| cpe
-  app -->|"@Microsoft.KeyVault refs · UAMI"| kpe
-  cpe --- cosmos
-  kpe --- kv
-  cdns -.->|"auto A record → 10.10.2.x"| cpe
-  kdns -.->|"auto A record → 10.10.2.x"| kpe
-
-  app -->|"telemetry"| ai
-  operator -->|"seed secrets (IP allow-listed)"| kv
-```
+<p align="center">
+  <img src="docs/network.png" alt="Network architecture: public HTTPS reaches the VNet-integrated App Service, whose outbound traffic is route-all forced into snet-app (VNet integration) and out to private endpoints in snet-pe for Cosmos DB and Key Vault; linked private DNS zones resolve the service FQDNs to 10.10.2.x, telemetry flows to Application Insights, and the operator seeds Key Vault secrets over an allow-listed IP." width="900">
+</p>
 
 **How a private lookup resolves** - the linked private DNS zones make the public
 hostnames resolve to a private IP inside `snet-pe`, so the connection stays on

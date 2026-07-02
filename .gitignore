@@ -75,3 +75,6 @@ tfplan
 
 # Local-only notes (kept on disk, intentionally not tracked)
 docs/telemetry-feedback-loop.md
+
+# Third-party skill installed locally for authoring (not part of the app)
+.github/skills/excalidraw-diagram/
